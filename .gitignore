@@ -1,2 +1,5 @@
 result
 .direnv
+.gcroots
+.worktrees/
+.pre-commit-config.yaml

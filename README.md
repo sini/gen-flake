@@ -1,12 +1,65 @@
-# gen-flake
+# gen-flake — the nixpkgs boundary of the pure-gen module ecosystem
 
-The single boundary of the pure-gen module ecosystem.
+[![CI](https://github.com/sini/gen-flake/actions/workflows/ci.yml/badge.svg)](https://github.com/sini/gen-flake/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/sini)
 
-The pure stack composes a gen module tree with **no nixpkgs**, producing resolved **values** plus
-per-class **deferredModules**. A later terminal (not part of this library) injects those values into
-a consumer's nixpkgs eval and builds NixOS systems.
+## Overview
+
+gen-flake is the **single nixpkgs boundary** of the pure-gen module ecosystem. Compose a gen module
+tree **purely** — `gen-merge`'s `evalModuleTree` folds the tree over the `gen-schema`/`gen-aspects`
+grammar, checked by `gen-types`, with **no nixpkgs** — yielding resolved **values** plus per-class
+**deferredModules**. gen-flake is the terminal that crosses into nixpkgs: it **injects those
+resolved VALUES** into a consumer's nixpkgs eval (via `_module.args`) and builds NixOS systems.
+
+This is **value-injection, not type-driving**: a gen type rides as inert data inside `_module.args`
+and never enters the consumer's options tree, so nixpkgs never type-walks it. That one-way trade is
+what lets the pure engine terminate at nixpkgs without a foreign module library driving it.
 
 **Invariant:** gen *types* never leave the pure eval; only *values* cross into nixpkgs.
+
+## Gen Ecosystem
+
+| Library | Role |
+|---------|------|
+| [gen-prelude](https://github.com/sini/gen-prelude) | Pure nixpkgs-lib-free utility base (builtins re-exports + vendored lib utils) |
+| [gen-algebra](https://github.com/sini/gen-algebra) | Pure primitives (record, search monad, either, intensional identity) |
+| [gen-types](https://github.com/sini/gen-types) | Clean-room MIT structural type checker (leaf/poly checkers; `verify: v → null\|err`) |
+| [gen-merge](https://github.com/sini/gen-merge) | Byte-mode module merge engine (`evalModuleTree`, byte-identical to nixpkgs `lib.evalModules` over the priority subset) |
+| [gen-schema](https://github.com/sini/gen-schema) | Typed registries (kinds, instances, collections, refs); re-hosted on gen-merge |
+| [gen-aspects](https://github.com/sini/gen-aspects) | Aspect type system (traits, classification, dispatch); re-hosted on gen-merge |
+| [gen-scope](https://github.com/sini/gen-scope) | HOAG scope-graph evaluator (demand-driven, \_eval memoization, circular attributes) |
+| [gen-graph](https://github.com/sini/gen-graph) | Accessor-based graph query combinators (traversal, condensation, phaseOrder) |
+| [gen-select](https://github.com/sini/gen-select) | Selector algebra (pattern matching over graph positions) |
+| [gen-bind](https://github.com/sini/gen-bind) | Module binding (inject external args into NixOS modules) |
+| [gen-dispatch](https://github.com/sini/gen-dispatch) | Relational rule dispatch STEP (stratified phases, conflict resolution) |
+| [gen-resolve](https://github.com/sini/gen-resolve) | Demand-driven RAG evaluator over scope graphs (attribute schedule + convergence loop) |
+| [gen-rebuild](https://github.com/sini/gen-rebuild) | Pure-Nix incremental rebuilder (change propagation, AFFECTED set) |
+| [gen-vars](https://github.com/sini/gen-vars) | Pure-Nix vars/secrets (den-agnostic) |
+| [gen-flake](https://github.com/sini/gen-flake) | **This lib** — the nixpkgs boundary — compose purely, inject resolved values, build NixOS systems (value-injection) |
+
+## Usage
+
+### As a flake input
+
+Import the flake module into a flake-parts flake and point `gen.tree` at a directory of gen
+definition modules. From one `compose` you get both the resolved VALUES (injected as `genValues`)
+and the built `nixosConfigurations`:
+
+```nix
+{
+  imports = [ gen-flake.flakeModules.default ];
+
+  gen.tree = ./gen-modules; # a directory of gen definition modules
+  gen.extraModules.myhost = [ ./hardware.nix ]; # per-host platform/base NixOS modules
+
+  # the resolved gen VALUES are injected as `genValues` into every flake + perSystem module:
+  flake.myOutput = {
+    addr = config.gen.composed.values.hosts.myhost.addr;
+  };
+}
+```
+
+The `lib.compose` and `flakeModules.default` sections below document the full projection and option
+set; `lib.compose` is also the entry point for consumers not on flake-parts.
 
 ## `lib.compose`
 
@@ -102,3 +155,18 @@ The pure core (`lib/compose.nix`, `lib/inject.nix`) is nixpkgs-lib-free, enforce
 the root `flakeModule.nix` (the flake-parts host — uses `lib.mkOption`/`lib.types` supplied by the
 consumer's eval) are the sanctioned exclusions. nixpkgs is pulled only in `ci/` (the nix-unit
 harness). Run the tests with `nix flake check ./ci`.
+
+## Testing
+
+```console
+$ nix flake check ./ci
+```
+
+The nix-unit suites exercise the projection and the terminal: `ci/tests/compose.nix`
+(`values`/`classContent`/`hostContent`), `ci/tests/terminal.nix` (the `hostContent` projection +
+`mkSystems`), `ci/tests/flake-module.nix` (the end-to-end fixture consumer that proves the
+invariant), and `ci/tests/purity.nix` (the pure core is nixpkgs-lib-free).
+
+## License
+
+MIT © Jason Bowman
