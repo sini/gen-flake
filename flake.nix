@@ -45,6 +45,12 @@
     gen-bind.inputs.gen-prelude.follows = "gen-prelude";
 
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
+
+    # flake-parts — the host that `flakeModules.default` (this task's `.flakeModule`) targets. The
+    # exported module is a plain flake-parts module: a CONSUMER supplies their own flake-parts eval,
+    # so gen-flake never CALLS flake-parts here. Pinned as the reference/compatible host (and the one
+    # ci/ evaluates the fixture consumer against).
+    flake-parts.url = "github:hercules-ci/flake-parts";
   };
 
   outputs =
@@ -59,8 +65,8 @@
       nixpkgs,
       ...
     }:
-    {
-      lib = import ./lib {
+    let
+      genFlakeLib = import ./lib {
         # The fork's flake output already IS the callable object (its flake `outputs = _: import ./.`).
         importTree = import-tree;
         genMerge = gen-merge.lib;
@@ -72,5 +78,14 @@
         genBind = gen-bind.lib;
         inherit nixpkgs;
       };
+    in
+    {
+      lib = genFlakeLib;
+
+      # The flake-parts ergonomics module. Partially applied over the constructed gen-flake lib so
+      # `flakeModules.default` is a ready-to-`imports` module: `imports = [ gen-flake.flakeModules.default ]`
+      # gives a consumer compose-once → value-injection (query) + `flake.nixosConfigurations` (systems),
+      # with no manual threading. See flakeModule.nix.
+      flakeModules.default = import ./flakeModule.nix genFlakeLib;
     };
 }

@@ -30,6 +30,10 @@
     gen-bind.inputs.gen-prelude.follows = "gen-prelude";
 
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
+
+    # flake-parts (T7): the host used to EVALUATE the fixture consumer flake in
+    # ci/tests/flake-module.nix (`flakeParts.lib.evalFlakeModule`). Same input the root flake pins.
+    flake-parts.url = "github:hercules-ci/flake-parts";
   };
 
   outputs =
@@ -43,6 +47,7 @@
       import-tree,
       gen-bind,
       nixpkgs,
+      flake-parts,
       ...
     }:
     let
@@ -67,6 +72,8 @@
         genSchema = gen-schema.lib;
         genAspects = gen-aspects.lib;
         genBind = gen-bind.lib;
+        # T7: flake-parts, so ci/tests/flake-module.nix can evaluate a fixture consumer flake.
+        flakeParts = flake-parts;
       };
     };
 }

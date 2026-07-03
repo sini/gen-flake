@@ -11,8 +11,13 @@
 #   * RELAXED (lib/default.nix, root flake.nix, root default.nix): WIRING. These thread `nixpkgs`/
 #             `genBind` as OPAQUE values into the terminal, so they may NAME `nixpkgs` — but they must
 #             still never CALL a module-system function (`lib.evalModules`/`lib.types`/…).
-#   * EXCLUDED (lib/systems.nix): the ONE sanctioned nixpkgs boundary. `nixpkgs.lib.nixosSystem`
-#             legitimately enters here; the terminal is where the pure→nixpkgs crossing happens.
+#   * EXCLUDED (lib/systems.nix, ./flakeModule.nix): the sanctioned nixpkgs / flake-parts boundary.
+#             `lib/systems.nix` is where `nixpkgs.lib.nixosSystem` enters. `./flakeModule.nix` is the
+#             flake-parts ergonomics host (T7): it declares options with nixpkgs `lib.mkOption`/
+#             `lib.types` (supplied by the CONSUMER's flake-parts eval) and closes over `mkSystems`,
+#             so it is classified terminal-side exactly like systems.nix. It lives at the repo ROOT
+#             (not ./lib) and is intentionally absent from both the ./lib walk and `rootScans` below,
+#             so it is never strict-scanned. The pure→nixpkgs crossing happens at these files only.
 #
 # Comments are stripped before scanning, so this note's own tokens do not trip it.
 { lib, ... }:
@@ -87,6 +92,8 @@ let
   ) (walk libDir);
 
   # Root wiring files: NAME nixpkgs/gen-bind as inputs, but must not CALL a module-system function.
+  # NOTE: flakeModule.nix is deliberately NOT listed here — it is the flake-parts terminal-side host
+  # (EXCLUDED, like lib/systems.nix); it legitimately uses lib.mkOption/lib.types.
   rootScans =
     lib.concatMap
       (
