@@ -42,6 +42,27 @@
         "type": "github"
       }
     },
+    "gen-bind": {
+      "inputs": {
+        "gen-prelude": [
+          "gen-prelude"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783016466,
+        "narHash": "sha256-ecgaTVOwLniIBoOmLS66efPX1UiAmvOSm2g7Y9tSup4=",
+        "owner": "sini",
+        "repo": "gen-bind",
+        "rev": "f1d30cbb9fc1cdd48a6a94423d8a8e6e59dde14f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "sini",
+        "ref": "f1d30cb",
+        "repo": "gen-bind",
+        "type": "github"
+      }
+    },
     "gen-merge": {
       "inputs": {
         "gen-prelude": [
@@ -160,14 +181,29 @@
         "type": "github"
       }
     },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1782723713,
+        "narHash": "sha256-T6OhkwGyyGHer1lr4GkbOp//7ii23xLE7HuMmjrdkXI=",
+        "rev": "b5aa0fbd538984f6e3d201be0005b4463d8b09f8",
+        "type": "tarball",
+        "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1024265.b5aa0fbd5389/nixexprs.tar.xz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz"
+      }
+    },
     "root": {
       "inputs": {
         "gen-aspects": "gen-aspects",
+        "gen-bind": "gen-bind",
         "gen-merge": "gen-merge",
         "gen-prelude": "gen-prelude",
         "gen-schema": "gen-schema",
         "gen-types": "gen-types",
-        "import-tree": "import-tree"
+        "import-tree": "import-tree",
+        "nixpkgs": "nixpkgs"
       }
     }
   },

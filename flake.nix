@@ -36,6 +36,15 @@
     # `(import-tree.addPath <dir>).files` returns a BARE PATH LIST that feeds `evalModuleTree`
     # directly (gen-merge #20 path-leaf import). Pure builtins, no lib.
     import-tree.url = "github:denful/import-tree/a164a12202f58eb67559bd33b5592f20660d9baf";
+
+    # The terminal deps (T6). gen-bind supplies `wrapAll` (DI of resolved bindings into class module
+    # functions); nixpkgs supplies `.lib.nixosSystem` + the NixOS module set. These enter ONLY the
+    # terminal (./lib/systems.nix) — the PURE core (compose/inject) never sees them. Their inclusion
+    # here is the sanctioned nixpkgs boundary; the library core stays nixpkgs-lib-free.
+    gen-bind.url = "github:sini/gen-bind/f1d30cb";
+    gen-bind.inputs.gen-prelude.follows = "gen-prelude";
+
+    nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
   };
 
   outputs =
@@ -46,6 +55,8 @@
       gen-schema,
       gen-aspects,
       import-tree,
+      gen-bind,
+      nixpkgs,
       ...
     }:
     {
@@ -57,6 +68,9 @@
         genAspects = gen-aspects.lib;
         genTypes = gen-types.lib;
         genPrelude = gen-prelude.lib;
+        # Terminal deps — threaded straight into ./lib/systems.nix; the pure core never receives them.
+        genBind = gen-bind.lib;
+        inherit nixpkgs;
       };
     };
 }

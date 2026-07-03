@@ -1,10 +1,20 @@
-# Purity invariant: the gen-flake library (./lib) is nixpkgs-lib-free. `compose` drives gen-merge's
-# byte-mode `evalModuleTree` (the `lib.evalModules` replacement) + the injected gen libs — it must
-# never CALL nixpkgs `lib.evalModules`/`lib.types`. A stray `lib.`/`evalModules`/`nixpkgs` tether in
-# the library source fails CI.
+# Purity invariant, with a documented terminal carve-out.
 #
-# Scope: lib/**.nix + the root flake.nix + default.nix. NOT ci/ (the harness legitimately uses
-# nixpkgs.lib). Comments are stripped before scanning, so this note's own tokens do not trip it.
+# gen-flake is the SINGLE nixpkgs boundary of a pure-gen ecosystem. That boundary is DELIBERATELY
+# narrow — it lives in exactly one file (lib/systems.nix, the terminal), and everything else stays
+# nixpkgs-lib-free. This test enforces the split three ways:
+#
+#   * STRICT  (lib/compose.nix, lib/inject.nix, + any future pure lib file): the PURE core. It drives
+#             gen-merge's byte-mode `evalModuleTree` (the `lib.evalModules` replacement) + injected gen
+#             libs — it must NEVER name `nixpkgs` nor CALL a nixpkgs module-system function. A stray
+#             `nixpkgs`/`lib.types`/`evalModules` tether here fails CI.
+#   * RELAXED (lib/default.nix, root flake.nix, root default.nix): WIRING. These thread `nixpkgs`/
+#             `genBind` as OPAQUE values into the terminal, so they may NAME `nixpkgs` — but they must
+#             still never CALL a module-system function (`lib.evalModules`/`lib.types`/…).
+#   * EXCLUDED (lib/systems.nix): the ONE sanctioned nixpkgs boundary. `nixpkgs.lib.nixosSystem`
+#             legitimately enters here; the terminal is where the pure→nixpkgs crossing happens.
+#
+# Comments are stripped before scanning, so this note's own tokens do not trip it.
 { lib, ... }:
 let
   libDir = ../../lib;
@@ -29,42 +39,71 @@ let
       ) (builtins.readDir dir)
     );
 
-  sources =
-    map (p: {
-      name = toString p;
-      code = stripComments (builtins.readFile p);
-    }) (walk libDir)
-    ++
-      map
-        (rel: {
-          name = rel;
-          code = stripComments (builtins.readFile (../.. + "/${rel}"));
-        })
-        [
-          "flake.nix"
-          "default.nix"
-        ];
+  read = p: stripComments (builtins.readFile p);
 
-  # The nixpkgs / module-system tether. gen-flake does not DEFINE any module-system API of its own
-  # (it delegates entirely to gen-merge), so every nixpkgs token below is genuinely forbidden.
-  # `evalModules` is safe to forbid — it is not an infix of gen-merge's `evalModuleTree`.
-  forbidden = [
-    "nixpkgs"
+  # The nixpkgs module-system CALL tether — forbidden EVERYWHERE in the library (even the wiring may
+  # not call these). `evalModules` is safe to forbid — it is not an infix of gen-merge's
+  # `evalModuleTree`.
+  callTokens = [
     "lib.types"
     "lib.mkOption"
     "lib.mkMerge"
     "lib.evalModules"
     "evalModules"
+  ];
+  # The nixpkgs-IMPORT tether — additionally forbidden in the STRICT core (the pure files must not so
+  # much as name nixpkgs). The wiring is allowed these because it threads nixpkgs opaquely.
+  importTokens = [
+    "nixpkgs"
     "{ lib }"
     "{ lib,"
   ];
+  strictForbidden = callTokens ++ importTokens;
 
-  violations = lib.concatMap (
-    src: map (tok: "${src.name}: '${tok}'") (lib.filter (tok: lib.hasInfix tok src.code) forbidden)
-  ) sources;
+  # Classify each lib/*.nix file: systems.nix is the excluded terminal; default.nix is wiring; every
+  # other lib file is strict pure core (so a NEW pure file is guarded by default).
+  classify =
+    p:
+    let
+      base = baseNameOf (toString p);
+    in
+    if base == "systems.nix" then
+      null # EXCLUDED — the sanctioned nixpkgs boundary
+    else if base == "default.nix" then
+      "relaxed"
+    else
+      "strict";
+
+  libScans = lib.concatMap (
+    p:
+    let
+      cls = classify p;
+      forbidden = if cls == "strict" then strictForbidden else callTokens;
+    in
+    if cls == null then
+      [ ]
+    else
+      map (tok: "${toString p}: '${tok}'") (lib.filter (tok: lib.hasInfix tok (read p)) forbidden)
+  ) (walk libDir);
+
+  # Root wiring files: NAME nixpkgs/gen-bind as inputs, but must not CALL a module-system function.
+  rootScans =
+    lib.concatMap
+      (
+        rel:
+        map (tok: "${rel}: '${tok}'") (
+          lib.filter (tok: lib.hasInfix tok (read (../.. + "/${rel}"))) callTokens
+        )
+      )
+      [
+        "flake.nix"
+        "default.nix"
+      ];
+
+  violations = libScans ++ rootScans;
 in
 {
-  flake.tests.purity.test-library-source-is-nixpkgs-free = {
+  flake.tests.purity.test-library-core-is-nixpkgs-free = {
     expr = violations;
     expected = [ ];
   };

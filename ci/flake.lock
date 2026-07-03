@@ -265,6 +265,27 @@
         "type": "github"
       }
     },
+    "gen-bind_3": {
+      "inputs": {
+        "gen-prelude": [
+          "gen-prelude"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783016466,
+        "narHash": "sha256-ecgaTVOwLniIBoOmLS66efPX1UiAmvOSm2g7Y9tSup4=",
+        "owner": "sini",
+        "repo": "gen-bind",
+        "rev": "f1d30cbb9fc1cdd48a6a94423d8a8e6e59dde14f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "sini",
+        "ref": "f1d30cb",
+        "repo": "gen-bind",
+        "type": "github"
+      }
+    },
     "gen-dispatch": {
       "inputs": {
         "gen-prelude": "gen-prelude_9"
@@ -1351,6 +1372,7 @@
       "inputs": {
         "gen": "gen",
         "gen-aspects": "gen-aspects_2",
+        "gen-bind": "gen-bind_3",
         "gen-merge": "gen-merge_5",
         "gen-prelude": "gen-prelude_27",
         "gen-schema": "gen-schema_3",

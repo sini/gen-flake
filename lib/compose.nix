@@ -34,6 +34,72 @@ let
       genPrelude
       ;
   };
+
+  # The class fields of a flat-registry aspect entry: keys whose value is a deferredModule (an
+  # attrset carrying an `imports` LIST). Structural — no hardcoded class-name list, so any class
+  # registered via `mkAspectSchema { classes.<c> = {}; }` is discovered. Reading `? imports` on an
+  # unforced deferredModule is cheap and does NOT force the class body.
+  classFieldsOf =
+    entry:
+    builtins.filter (
+      k:
+      let
+        v = entry.${k};
+      in
+      builtins.isAttrs v && v ? imports && builtins.isList v.imports
+    ) (builtins.attrNames entry);
+
+  # `dedup` — order-preserving unique over a string list, builtins-only (listToAttrs collapses dups).
+  dedup =
+    xs:
+    builtins.attrNames (
+      builtins.listToAttrs (
+        map (x: {
+          name = x;
+          value = null;
+        }) xs
+      )
+    );
+
+  # `projectHosts` — the (class, host) reshape T5 deferred. Projects the FLAT aspect registry to
+  # per-host class content: for each host instance, gather the deferredModules of each class across
+  # the aspects the host declares membership in (`host.aspects`). Yields
+  #   { <host> = { bindings = { host = <resolved instance>; }; classes = { <class> = [ <deferredModule> ]; }; }; }
+  # `bindings` are the resolved VALUES a class module is partial-applied with at the terminal (via
+  # gen-bind's `wrapAll`); `classes.<c>` is the ordered deferredModule list fed to that class's system.
+  # PURE — no nixpkgs; the deferredModules stay unforced (opaque) until the terminal imports them.
+  projectHosts =
+    values: classContent:
+    let
+      hosts = values.hosts or { };
+    in
+    builtins.mapAttrs (
+      _hostName: inst:
+      let
+        memberAspects = builtins.filter (a: classContent ? ${a}) (inst.aspects or [ ]);
+        classNames = dedup (builtins.concatMap (a: classFieldsOf classContent.${a}) memberAspects);
+        collectClass =
+          class:
+          builtins.concatMap (
+            a:
+            let
+              entry = classContent.${a};
+            in
+            if builtins.elem class (classFieldsOf entry) then [ entry.${class} ] else [ ]
+          ) memberAspects;
+      in
+      {
+        bindings = {
+          host = inst;
+        };
+        classes = builtins.listToAttrs (
+          map (c: {
+            name = c;
+            value = collectClass c;
+          }) classNames
+        );
+      }
+    ) hosts;
 in
 {
   compose =
@@ -57,6 +123,9 @@ in
       };
 
       cfg = result.config;
+
+      # The flat aspect registry (keyed by aspect path). Absent an `aspects` surface, empty.
+      classContent = if cfg ? aspects then genAspects.flatten cfg.aspects else { };
     in
     {
       # Resolved config VALUES — a thin read of the fixpoint config: instances, id_hash, resolved
@@ -66,9 +135,16 @@ in
 
       # Per-class deferredModule content: the flat aspect registry (keyed by aspect path), where each
       # entry carries its per-class deferredModule fields (e.g. `.nixos`). The deferredModules are
-      # inspectable but unforced, so class bodies cross into nixpkgs unevaluated. The exact
-      # `(class, host)` reshape is finalized downstream (T6/T8) against the real demos — kept minimal
-      # here on purpose. Absent an `aspects` surface, this is empty.
-      classContent = if cfg ? aspects then genAspects.flatten cfg.aspects else { };
+      # inspectable but unforced, so class bodies cross into nixpkgs unevaluated. This stays the flat
+      # QUERY surface (gen-graph/gen-select queries over aspects); the per-host build shape is
+      # `hostContent` below. Absent an `aspects` surface, this is empty.
+      inherit classContent;
+
+      # The (class, host) reshape T5 deferred, finalized here (T6). Host-keyed projection of the flat
+      # registry — `{ <host> = { bindings; classes = { <class> = [ deferredModule ]; }; }; }` — driven
+      # by each host's `aspects` membership. This is what the terminal (`mkSystems`) builds: per host,
+      # `wrapAll` partial-applies `bindings` into `classes.<class>` and hands the result to a system.
+      # PURE — the deferredModules remain unforced until the terminal's nixpkgs eval imports them.
+      hostContent = projectHosts cfg classContent;
     };
 }

@@ -25,6 +25,10 @@
 
     import-tree.url = "github:denful/import-tree/a164a12202f58eb67559bd33b5592f20660d9baf";
 
+    # Terminal dep (T6): gen-bind's `wrapAll`, pinned to the same rev as the root flake.
+    gen-bind.url = "github:sini/gen-bind/f1d30cb";
+    gen-bind.inputs.gen-prelude.follows = "gen-prelude";
+
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
   };
 
@@ -37,6 +41,8 @@
       gen-schema,
       gen-aspects,
       import-tree,
+      gen-bind,
+      nixpkgs,
       ...
     }:
     let
@@ -47,6 +53,8 @@
         genAspects = gen-aspects.lib;
         genTypes = gen-types.lib;
         genPrelude = gen-prelude.lib;
+        genBind = gen-bind.lib;
+        inherit nixpkgs;
       };
     in
     gen.lib.mkCi {
@@ -54,10 +62,11 @@
       name = "gen-flake";
       testModules = ./tests;
       specialArgs = {
-        inherit genFlake;
+        inherit genFlake nixpkgs;
         genMerge = gen-merge.lib;
         genSchema = gen-schema.lib;
         genAspects = gen-aspects.lib;
+        genBind = gen-bind.lib;
       };
     };
 }

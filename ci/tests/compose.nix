@@ -53,5 +53,9 @@ in
       expr = (genFlake.compose { }).classContent;
       expected = { };
     };
+    test-empty-hostcontent = {
+      expr = (genFlake.compose { }).hostContent;
+      expected = { };
+    };
   };
 }

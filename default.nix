@@ -23,6 +23,11 @@
     schema = genSchema;
   },
   importTree ? import (fetch "import-tree"),
+  genBind ? import "${fetch "gen-bind"}/lib" { prelude = genPrelude; },
+  # nixpkgs is the terminal's dependency and is provided at the `mkSystems` CALL site (the sanctioned
+  # boundary). The standalone entry leaves it null so the pure/query paths need no nixpkgs; a
+  # `mkSystems` caller passes their own `nixpkgs`.
+  nixpkgs ? null,
 }:
 import ./lib {
   inherit
@@ -32,5 +37,7 @@ import ./lib {
     genAspects
     genTypes
     genPrelude
+    genBind
+    nixpkgs
     ;
 }
