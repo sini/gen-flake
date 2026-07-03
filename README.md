@@ -15,7 +15,7 @@ a consumer's nixpkgs eval and builds NixOS systems.
 ```nix
 compose ::
   { tree ? <path>, modules ? [ ], specialArgs ? { } }
-  -> { values; classContent; }
+  -> { values; classContent; hostContent; }
 ```
 
 - `tree` — a directory of gen definition modules, loaded as a **bare path list** via the
@@ -31,13 +31,19 @@ surfaces purely — no nixpkgs `lib`.
 ### Projection
 
 - `values` — a thin read of the resolved config (`result.config`): instances, `id_hash`, resolved
-  refs, flattened surfaces.
-- `classContent` — `genAspects.flatten result.config.aspects`: the flat aspect registry, where each
-  entry carries its per-class deferredModule content (e.g. `.nixos`). This is the raw material a
-  consumer eval injects into nixpkgs. The exact `(class, host)` reshape is finalized downstream.
+  refs, flattened surfaces. This is the injection payload — VALUES, not gen types.
+- `classContent` — `genAspects.flatten result.config.aspects`: the flat aspect registry (keyed by
+  aspect path), where each entry carries its per-class deferredModule content (e.g. `.nixos`),
+  inspectable but unforced. This is the flat **query** surface (gen-graph/gen-select queries over
+  aspects).
+- `hostContent` — the per-host `(class, host)` projection driven by each host's `aspects` membership:
+  `{ <host> = { bindings = { host = <resolved instance>; }; classes = { <class> = [ <deferredModule> ]; }; }; }`.
+  This is the **build** surface `mkSystems` consumes; the deferredModules stay unforced until the
+  terminal imports them.
 
-The projection is intentionally minimal; it is exercised by `ci/tests/compose.nix` against the
-fixture tree under `ci/tests/_fixtures/tree/`.
+The projection is exercised by `ci/tests/compose.nix` (values/classContent/hostContent) and
+`ci/tests/terminal.nix` (the hostContent projection + `mkSystems`) against the fixture tree under
+`ci/tests/_fixtures/tree/`.
 
 ## `flakeModules.default` — flake-parts ergonomics
 
