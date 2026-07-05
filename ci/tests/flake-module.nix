@@ -5,7 +5,7 @@
 # it proves both halves of the value-injection invariant:
 #   * QUERY   — the resolved gen VALUES are injected as a `genValues` module arg; the consumer reads
 #               `genValues.hosts.<h>.addr` in its own flake modules (no manual compose/inject).
-#   * SYSTEMS — `flake.nixosConfigurations.<host>` is built by mkSystems and EVALUATES.
+#   * SYSTEMS — `flake.nixosConfigurations.<host>` is realized (the `nixos` class) and EVALUATES.
 #   * INVARIANT — the gen TYPE (`values.schema.<kind>.options.*.type`) rides along as DATA inside
 #               `genValues`, yet NEVER enters the consumer's OPTIONS tree; the system builds with no
 #               `substSubModules`/`getSubOptions` throw, and `options ? schema` is false.
@@ -57,7 +57,6 @@ let
             base
             { networking.domain = "role-${genValues.hosts.igloo.role}.local"; }
           ];
-          gen.extraModules.iceberg = [ base ];
 
           # A plain consumer flake output that surfaces queried values (proves the arg resolved), plus
           # a peek at the gen TYPE carried AS DATA inside `genValues` (schema was NOT stripped).
@@ -84,11 +83,12 @@ in
       expected = "worker";
     };
 
-    # AC2 (systems) — mkSystems built per-host nixosConfigurations from the ONE compose.
+    # AC2 (systems) — realize built per-host nixosConfigurations from the ONE compose. The output is
+    # class-major and content-driven: only hosts with `nixos` content appear. `iceberg` declares no
+    # aspects (empty projection), so it is NOT built (mkSystems iterated every host; realize does not).
     test-nixosconfig-hosts = {
       expr = builtins.attrNames cc.flake.nixosConfigurations;
       expected = [
-        "iceberg"
         "igloo"
       ];
     };
@@ -102,9 +102,11 @@ in
       expr = cc.flake.nixosConfigurations.igloo.config.networking.domain;
       expected = "role-web.local";
     };
-    # The cross-terminal `nodes` accessor is wired through mkSystems (colmena-style).
+    # The cross-host `nodes` accessor is wired through realize (colmena-style): it is THIS class's
+    # realized set. Only `igloo` is in the `nixos` class here (iceberg has no content), so `nodes`
+    # holds one host.
     test-nixosconfig-cross-terminal-nodes = {
-      expr = builtins.elem "peers-2" cc.flake.nixosConfigurations.igloo.config.system.nixos.tags;
+      expr = builtins.elem "peers-1" cc.flake.nixosConfigurations.igloo.config.system.nixos.tags;
       expected = true;
     };
 

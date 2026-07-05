@@ -1,7 +1,7 @@
 # flakeModule.nix — gen-flake's flake-parts ergonomics ("no manual threading").
 #
 # Exposed as `gen-flake.flakeModules.default`. A consumer writes, with NO manual
-# compose/inject/mkSystems threading:
+# compose/inject/realize threading:
 #
 #     imports = [ gen-flake.flakeModules.default ];
 #     gen.tree = ./gen-modules;                       # a directory of gen definition modules
@@ -11,17 +11,19 @@
 #   * QUERY   — the resolved gen VALUES injected as consumer module args under `config.gen.inject`
 #               names (default `genValues`), into BOTH the top-level flake module args AND every
 #               `perSystem` arg, so any consumer module reads `{ genValues, ... }: … genValues.hosts.<h>.addr …`.
-#   * SYSTEMS — `flake.nixosConfigurations = mkSystems { … }`, built per host from compose's `hosts`
-#               projection (each host's `nixos` class deferredModules, with the resolved instance
-#               partial-applied as the `host` binding by gen-bind's `wrapAll`).
+#   * SYSTEMS — `flake.nixosConfigurations = (realize { … }).nixos`, the `nixos` class realized per
+#               host from compose's `hosts` projection (each host's `nixos` class deferredModules,
+#               with the resolved instance partial-applied as the `host` binding by gen-bind's
+#               `wrapAll`). A host with no `nixos` content is not built (class-major).
 #
 # This file is the FLAKE-PARTS / TERMINAL side of gen-flake. Unlike the pure core
-# (lib/compose.nix, lib/inject.nix) it legitimately uses nixpkgs `lib` (mkOption/types — supplied by
-# the consumer's flake-parts eval) and closes over `mkSystems` (the nixpkgs boundary). So
-# ci/tests/purity.nix EXCLUDES it, for the same reason it excludes lib/systems.nix.
+# (lib/compose.nix, lib/inject.nix, lib/realize.nix) it legitimately uses nixpkgs `lib`
+# (mkOption/types — supplied by the consumer's flake-parts eval) and closes over the `terminals`
+# nixpkgs boundary. So ci/tests/purity.nix EXCLUDES it, for the same reason it excludes
+# lib/terminals.nix.
 #
-# It is a FUNCTION of the constructed gen-flake lib (compose / injectArgs / mkSystems), partially
-# applied in flake.nix so `flakeModules.default` is a ready-to-`imports` module.
+# It is a FUNCTION of the constructed gen-flake lib (compose / injectArgs / realize / terminals),
+# partially applied in flake.nix so `flakeModules.default` is a ready-to-`imports` module.
 genFlake:
 {
   config,
@@ -97,7 +99,7 @@ in
       default = inputs.nixpkgs or null;
       defaultText = lib.literalExpression "inputs.nixpkgs or null";
       description = ''
-        The nixpkgs used to BUILD the per-host NixOS systems (`mkSystems`). Defaults to the
+        The nixpkgs used to BUILD the per-host NixOS systems (the `nixos` terminal). Defaults to the
         consumer's own `inputs.nixpkgs`, so systems pin to the consumer's nixpkgs, not gen-flake's.
       '';
     };
@@ -130,11 +132,13 @@ in
       _module.args = cfg.inject;
     };
 
-    # SYSTEMS — build per-host NixOS systems from compose's per-host projection.
-    flake.nixosConfigurations = genFlake.mkSystems {
-      hostContent = composed.hosts;
-      nixpkgs = cfg.nixpkgs;
-      extraModules = cfg.extraModules;
-    };
+    # SYSTEMS — realize the `nixos` class from compose's per-host projection (interim call-site
+    # migration; the v1 options redesign — a `gen.terminals` surface — is a later task).
+    flake.nixosConfigurations =
+      (genFlake.realize {
+        inherit composed;
+        terminals.nixos = genFlake.terminals.nixosSystem { nixpkgs = cfg.nixpkgs; };
+        extraModules = cfg.extraModules;
+      }).nixos or { };
   };
 }

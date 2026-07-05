@@ -1,23 +1,24 @@
 # Purity invariant, with a documented terminal carve-out.
 #
 # gen-flake is the SINGLE nixpkgs boundary of a pure-gen ecosystem. That boundary is DELIBERATELY
-# narrow — it lives in exactly one file (lib/systems.nix, the terminal), and everything else stays
+# narrow — it lives in exactly one file (lib/terminals.nix, the terminal), and everything else stays
 # nixpkgs-lib-free. This test enforces the split three ways:
 #
-#   * STRICT  (lib/compose.nix, lib/inject.nix, + any future pure lib file): the PURE core. It drives
-#             gen-merge's byte-mode `evalModuleTree` (the `lib.evalModules` replacement) + injected gen
-#             libs — it must NEVER name `nixpkgs` nor CALL a nixpkgs module-system function. A stray
-#             `nixpkgs`/`lib.types`/`evalModules` tether here fails CI.
+#   * STRICT  (lib/compose.nix, lib/inject.nix, lib/realize.nix, + any future pure lib file): the PURE
+#             core. It drives gen-merge's byte-mode `evalModuleTree` (the `lib.evalModules` replacement)
+#             + injected gen libs — it must NEVER name `nixpkgs` nor CALL a nixpkgs module-system
+#             function. A stray `nixpkgs`/`lib.types`/`evalModules` tether here fails CI.
 #   * RELAXED (lib/default.nix, root flake.nix, root default.nix): WIRING. These thread `nixpkgs`/
 #             `genBind` as OPAQUE values into the terminal, so they may NAME `nixpkgs` — but they must
 #             still never CALL a module-system function (`lib.evalModules`/`lib.types`/…).
-#   * EXCLUDED (lib/systems.nix, ./flakeModule.nix): the sanctioned nixpkgs / flake-parts boundary.
-#             `lib/systems.nix` is where `nixpkgs.lib.nixosSystem` enters. `./flakeModule.nix` is the
+#   * EXCLUDED (lib/terminals.nix, ./flakeModule.nix): the sanctioned nixpkgs / flake-parts boundary.
+#             `lib/terminals.nix` is where `nixpkgs.lib.nixosSystem` enters. `./flakeModule.nix` is the
 #             flake-parts ergonomics host (T7): it declares options with nixpkgs `lib.mkOption`/
-#             `lib.types` (supplied by the CONSUMER's flake-parts eval) and closes over `mkSystems`,
-#             so it is classified terminal-side exactly like systems.nix. It lives at the repo ROOT
-#             (not ./lib) and is intentionally absent from both the ./lib walk and `rootScans` below,
-#             so it is never strict-scanned. The pure→nixpkgs crossing happens at these files only.
+#             `lib.types` (supplied by the CONSUMER's flake-parts eval) and closes over the `terminals`
+#             boundary, so it is classified terminal-side exactly like terminals.nix. It lives at the
+#             repo ROOT (not ./lib) and is intentionally absent from both the ./lib walk and
+#             `rootScans` below, so it is never strict-scanned. The pure→nixpkgs crossing happens at
+#             these files only.
 #
 # Comments are stripped before scanning, so this note's own tokens do not trip it.
 { lib, ... }:
@@ -65,14 +66,14 @@ let
   ];
   strictForbidden = callTokens ++ importTokens;
 
-  # Classify each lib/*.nix file: systems.nix is the excluded terminal; default.nix is wiring; every
-  # other lib file is strict pure core (so a NEW pure file is guarded by default).
+  # Classify each lib/*.nix file: terminals.nix is the excluded terminal; default.nix is wiring; every
+  # other lib file is strict pure core (so a NEW pure file — e.g. realize.nix — is guarded by default).
   classify =
     p:
     let
       base = baseNameOf (toString p);
     in
-    if base == "systems.nix" then
+    if base == "terminals.nix" then
       null # EXCLUDED — the sanctioned nixpkgs boundary
     else if base == "default.nix" then
       "relaxed"
@@ -93,7 +94,7 @@ let
 
   # Root wiring files: NAME nixpkgs/gen-bind as inputs, but must not CALL a module-system function.
   # NOTE: flakeModule.nix is deliberately NOT listed here — it is the flake-parts terminal-side host
-  # (EXCLUDED, like lib/systems.nix); it legitimately uses lib.mkOption/lib.types.
+  # (EXCLUDED, like lib/terminals.nix); it legitimately uses lib.mkOption/lib.types.
   rootScans =
     lib.concatMap
       (
