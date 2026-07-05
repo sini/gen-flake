@@ -113,10 +113,34 @@ let
         }
       ) hosts
     );
-in
-{
+
+  # `mergeComposeArgs` — the merge law of the cold `override` handle. `override edits` re-invokes
+  # `compose` with the ORIGINAL args merged with `edits` (an attrset of the SAME shape as compose
+  # args), per clause:
+  #   modules      APPENDED to the originals — new module defs join the existing ones (module-system
+  #                natural). Retraction of an existing def is `mkForce` in an appended module, NOT
+  #                list removal.
+  #   specialArgs  shallow-merged over the originals (`orig // edit`) — an edited key wins, untouched
+  #                keys survive.
+  #   engineArgs   shallow-merged over the originals (`orig // edit`), same as specialArgs.
+  #   tree         REPLACED when `edits` provides it, else the original is kept.
+  #   selectHosts  REPLACED when `edits` provides it, else the original is kept.
+  # `orig // edits` gives the tree/selectHosts REPLACE for free (the edit wins when present, the
+  # original survives otherwise); the three explicit keys re-derive the APPEND / shallow-merge clauses.
+  mergeComposeArgs =
+    orig: edits:
+    orig
+    // edits
+    // {
+      modules = (orig.modules or [ ]) ++ (edits.modules or [ ]);
+      specialArgs = (orig.specialArgs or { }) // (edits.specialArgs or { });
+      engineArgs = (orig.engineArgs or { }) // (edits.engineArgs or { });
+    };
+
   compose =
-    {
+    # `args@` keeps the ORIGINAL caller args attrset in scope for `override`'s cold re-compose
+    # (mergeComposeArgs reads them); the destructured formals below stay the working defaults.
+    args@{
       # A directory of gen definition modules, loaded as a bare path list. `null` ⇒ no tree.
       tree ? null,
       # Extra inline modules, appended after the tree (own defs win at equal priority — nixpkgs order).
@@ -183,5 +207,14 @@ in
       # partial-applies `bindings` into `classes.<class>` and hands the result to a system. PURE —
       # the deferredModules remain unforced until the terminal's nixpkgs eval imports them.
       hosts = projectHosts selectHosts cfg aspects;
+
+      # `override edits` → a fresh `compose` of the ORIGINAL args merged with `edits` (the merge law
+      # in mergeComposeArgs). COLD: literally re-invoke `compose`, so the result carries `override`
+      # again (chainable at every depth) and there is nothing to keep in sync — the re-eval IS the
+      # result. A later memoized implementation swaps THIS body behind the same byte-for-byte contract.
+      override = edits: compose (mergeComposeArgs args edits);
     };
+in
+{
+  inherit compose;
 }

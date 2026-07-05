@@ -68,6 +68,137 @@ let
       nestedAspect
     ];
   };
+
+  # ---- override fixture ----------------------------------------------------------------------------
+  # A base compose whose args each `override` clause edits, one clause per test. The schema carries
+  # TWO host registries (`hosts` / `spares`) so a `selectHosts` REPLACE re-projects; a top-level
+  # `marker` reads specialArgs so a specialArgs shallow-merge is observable in `values`; the `web`
+  # aspect gives projected hosts a `nixos` class.
+  ovSchema =
+    {
+      config,
+      genSchema,
+      genMerge,
+      ...
+    }:
+    {
+      options.schema = genSchema.mkSchemaOption { };
+      options.hosts = genSchema.mkInstanceRegistry config.schema.host { };
+      options.spares = genSchema.mkInstanceRegistry config.schema.host { };
+      options.marker = genMerge.mkOption {
+        type = genMerge.types.str;
+        default = "none";
+      };
+      config.schema.host = {
+        options.addr = genMerge.mkOption { type = genMerge.types.str; };
+        options.aspects = genMerge.mkOption {
+          type = genMerge.types.listOf genMerge.types.str;
+          default = [ ];
+        };
+      };
+      config.hosts.n1 = {
+        addr = "10.0.0.1";
+        aspects = [ "web" ];
+      };
+      config.spares.s1 = {
+        addr = "10.0.0.2";
+        aspects = [ "web" ];
+      };
+    };
+
+  ovAspect =
+    { genAspects, ... }:
+    let
+      aspectSchema = genAspects.mkAspectSchema { classes.nixos = { }; };
+    in
+    {
+      options.aspects = aspectSchema.mkAspectOption { };
+      config.aspects.web.nixos =
+        { host, ... }:
+        {
+          networking.hostName = host.name;
+        };
+    };
+
+  # Reads two specialArgs and surfaces them at top-level `marker` — makes a specialArgs merge (the
+  # edited key wins, the untouched key survives) observable in `values`.
+  ovMarker =
+    {
+      markerArg ? "none",
+      keepArg ? "none",
+      ...
+    }:
+    {
+      config.marker = "${markerArg}/${keepArg}";
+    };
+
+  # An appended module that mkForce's n1's addr — proves modules APPEND (the base def and this force
+  # coexist; the force wins) and is the cold-parity tooth's edit.
+  ovForceAddr =
+    { genMerge, ... }:
+    {
+      config.hosts.n1.addr = genMerge.mkForce "10.9.9.9";
+    };
+
+  # Appended modules that add fresh instances — used by the chain test (modules APPEND, in order).
+  ovAddN2 = {
+    config.hosts.n2 = {
+      addr = "10.0.0.20";
+      aspects = [ ];
+    };
+  };
+  ovAddN3 = {
+    config.hosts.n3 = {
+      addr = "10.0.0.30";
+      aspects = [ ];
+    };
+  };
+
+  ovBaseArgs = {
+    modules = [
+      ovSchema
+      ovAspect
+      ovMarker
+    ];
+    specialArgs = {
+      markerArg = "m0";
+      keepArg = "k0";
+    };
+  };
+  ovBase = genFlake.compose ovBaseArgs;
+
+  # Chain fixtures — e1 then e2, each editing a different clause (modules + specialArgs). The chained
+  # result must byte-equal `compose` of the hand-merged args: modules APPENDED in order, specialArgs
+  # shallow-merged left-to-right ({m0,k0} // {keepArg=k1} // {markerArg=m2} = {markerArg=m2,keepArg=k1}).
+  ovE1 = {
+    modules = [ ovAddN2 ];
+    specialArgs = {
+      keepArg = "k1";
+    };
+  };
+  ovE2 = {
+    modules = [ ovAddN3 ];
+    specialArgs = {
+      markerArg = "m2";
+    };
+  };
+  ovChained = (ovBase.override ovE1).override ovE2;
+  ovManualChain = genFlake.compose {
+    modules = ovBaseArgs.modules ++ [
+      ovAddN2
+      ovAddN3
+    ];
+    specialArgs = {
+      markerArg = "m2";
+      keepArg = "k1";
+    };
+  };
+
+  # Cold-parity fixtures — override with an mkForce edit vs `compose` of the hand-appended module list.
+  ovColdOverride = ovBase.override { modules = [ ovForceAddr ]; };
+  ovColdManual = genFlake.compose (
+    ovBaseArgs // { modules = ovBaseArgs.modules ++ [ ovForceAddr ]; }
+  );
 in
 {
   flake.tests.compose = {
@@ -208,6 +339,91 @@ in
           builtins.deepSeq v v
         )).success;
       expected = false;
+    };
+  };
+
+  # `override` — the cold re-compose handle. `composed.override edits` re-invokes `compose` with the
+  # original args merged with `edits` per the merge law: modules APPEND, specialArgs/engineArgs
+  # shallow-merge (edit wins), tree/selectHosts REPLACE. Cold = literally re-run compose, so the
+  # result carries `override` again (chainable). The cold-parity tooth (`override` ≡ `compose` of the
+  # hand-merged args, byte-equal) is the STANDING gate a later memoized `override` must still pass.
+  flake.tests.compose-override = {
+    # Baseline: no override — the base n1 addr stands.
+    test-base-addr = {
+      expr = ovBase.values.hosts.n1.addr;
+      expected = "10.0.0.1";
+    };
+    # modules APPEND — the base def and an appended mkForce coexist; the force wins. (Removal would
+    # drop the base/schema defs and break eval, so a resolved forced value proves APPEND, not REPLACE.)
+    test-modules-append-force-wins = {
+      expr = (ovBase.override { modules = [ ovForceAddr ]; }).values.hosts.n1.addr;
+      expected = "10.9.9.9";
+    };
+    # specialArgs shallow-merge — the edited key (`markerArg`) wins, the untouched key (`keepArg`)
+    # survives: `{m0,k0} // {markerArg=m1}` = `{markerArg=m1, keepArg=k0}` → marker "m1/k0".
+    test-specialargs-shallow-merge = {
+      expr =
+        (ovBase.override {
+          specialArgs = {
+            markerArg = "m1";
+          };
+        }).values.marker;
+      expected = "m1/k0";
+    };
+    # engineArgs shallow-merge — a base with default `check` (true) throws on an undeclared key; an
+    # override setting `check = false` (edit wins) flips it, so `values` forces to empty, not a throw.
+    test-engineargs-shallow-merge = {
+      expr =
+        ((genFlake.compose { modules = [ { config.undeclaredKey = "x"; } ]; }).override {
+          engineArgs.check = false;
+        }).values;
+      expected = { };
+    };
+    # selectHosts REPLACE — an override selecting the OTHER registry (`spares`) re-projects the host
+    # set (from `hosts`→`spares`), keyed by the spare instance name.
+    test-selecthosts-replace = {
+      expr = builtins.attrNames (ovBase.override { selectHosts = v: v.spares; }).hosts;
+      expected = [ "s1" ];
+    };
+    # Baseline projection reads the default (`hosts`) registry.
+    test-base-hosts-default = {
+      expr = builtins.attrNames ovBase.hosts;
+      expected = [ "n1" ];
+    };
+    # tree REPLACE — no second tree fixture exists, so a two-tree swap is not cheaply fixturable; the
+    # REPLACE clause is the SAME `orig // edits` path `selectHosts` above exercises. This pins that
+    # the `tree` clause flows through `override` by REPLACING a null tree with the fixture (null →
+    # tree), after which the fixture's `hosts` surface appears in `values`.
+    test-tree-replace = {
+      expr = ((genFlake.compose { }).override { tree = ./_fixtures/tree; }).values ? hosts;
+      expected = true;
+    };
+    # Chain — `(base.override e1).override e2` is byte-equal to `compose` of the hand-merged args
+    # (modules APPENDED in order, specialArgs shallow-merged left-to-right). Compared over the
+    # function-free resolved slice: `hosts` (modules-append lands here as n1/n2/n3) + `marker`
+    # (specialArgs lands here). Full `values` carries functions (schema type-checkers, the aspect's
+    # `nixos` deferredModule), which `toJSON`/`==` cannot cross — the resolved data is the comparable.
+    test-chain-equals-manual-merge = {
+      expr = builtins.toJSON {
+        inherit (ovChained.values) hosts marker;
+      };
+      expected = builtins.toJSON {
+        inherit (ovManualChain.values) hosts marker;
+      };
+    };
+    # COLD-PARITY TOOTH (standing gate) — `override`'s resolved instances are byte-equal to `compose`
+    # of the hand-appended module list for an mkForce edit (the force lands in `values.hosts`). A
+    # later memoized `override` must still pass THIS. (Compared over `values.hosts`, the function-free
+    # resolved-instance slice — full `values` carries type-checker/deferredModule functions.)
+    test-cold-parity-force = {
+      expr = builtins.toJSON ovColdOverride.values.hosts;
+      expected = builtins.toJSON ovColdManual.values.hosts;
+    };
+    # `override`'s result carries `override` AGAIN — the chainability shape (cold re-compose provides
+    # it naturally at every depth).
+    test-override-is-chainable = {
+      expr = builtins.isFunction (ovBase.override { }).override;
+      expected = true;
     };
   };
 }
