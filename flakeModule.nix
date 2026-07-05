@@ -15,9 +15,10 @@
 #   * QUERY   — the resolved gen VALUES injected as consumer module args under `config.gen.inject`
 #               names (default `genValues`) into the top-level flake module args, so any consumer
 #               module reads `{ genValues, ... }: … genValues.hosts.<h>.addr …`. The same values are
-#               ALSO injected into every `perSystem` arg IFF `gen.injectPerSystem` is set (opt-in, so a
-#               consumer that never declares `systems` still evaluates — flake-parts only needs
-#               `systems` once a `perSystem` definition exists).
+#               ALSO injected into every `perSystem` arg IFF `gen.injectPerSystem` is set — opt-in, so
+#               the default emits NO `perSystem` definition: the perSystem arg-scope stays clean (no
+#               values a perSystem module never named), and the module stays robust against flake-parts
+#               versions that force a `systems` declaration once any `perSystem` definition exists.
 #   * SYSTEMS — `flake.nixosConfigurations = (realize { terminals; … }).nixos or { }`, the `nixos`
 #               class realized per host from compose's `hosts` projection (each host's `nixos` class
 #               deferredModules, with the resolved instance partial-applied as the `host` binding by
@@ -129,10 +130,10 @@ in
       default = false;
       description = ''
         Whether to ALSO inject the resolved values (`inject`) into every `perSystem` arg, not just the
-        top-level flake args. Default `false`: the module emits NO `perSystem` definition, so a
-        consumer flake that never declares `systems` still evaluates (flake-parts only forces a
-        `systems` declaration once a `perSystem` definition exists). Set `true` when a `perSystem`
-        module needs to read `genValues`.
+        top-level flake args. Default `false`: the module emits NO `perSystem` definition, keeping the
+        perSystem arg-scope clean (no values a perSystem module never named) and the module robust
+        against flake-parts versions that force a `systems` declaration once any `perSystem` definition
+        exists. Set `true` when a `perSystem` module needs to read `genValues`.
       '';
     };
 
@@ -197,7 +198,8 @@ in
 
   config = {
     # QUERY — inject the resolved VALUES under the `inject` names into the top-level flake args
-    # (always), and into every `perSystem` arg IFF opted in (so a no-`systems` consumer evaluates).
+    # (always), and into every `perSystem` arg IFF opted in (default emits no `perSystem` definition,
+    # keeping the perSystem arg-scope clean).
     _module.args = cfg.inject;
     perSystem = lib.mkIf cfg.injectPerSystem (_: {
       _module.args = cfg.inject;

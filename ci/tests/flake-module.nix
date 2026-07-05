@@ -243,8 +243,8 @@ in
     };
 
     # perSystem injection is OPT-IN: with `injectPerSystem` at its default (false), the module emits no
-    # perSystem definition, so `genValues` is NOT among a system's perSystem args (`allModuleArgs` is
-    # flake-parts' surfaced `config._module.args`).
+    # perSystem definition, so `genValues` is NOT among a system's perSystem args. `allSystems.<sys>` is
+    # flake-parts' evaluated per-system config; `.allModuleArgs` is its surfaced `config._module.args`.
     test-persystem-not-injected-by-default = {
       expr = cc.allSystems."x86_64-linux".allModuleArgs ? genValues;
       expected = false;

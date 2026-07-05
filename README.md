@@ -133,8 +133,9 @@ From that one import the module:
 - runs `compose { inherit (config.gen) tree modules specialArgs; }` **once**;
 - injects the resolved values under `config.gen.inject` names (default `{ genValues = <values>; }`,
   derived by reusing `injectArgs`) into the top-level flake args, and — when `injectPerSystem` is set
-  — every `perSystem` arg. Opt-in perSystem injection keeps a consumer that never declares `systems`
-  evaluable (flake-parts only forces a `systems` declaration once a `perSystem` definition exists);
+  — every `perSystem` arg. Opt-in: the default emits no `perSystem` definition, keeping the perSystem
+  arg-scope clean and the module robust against flake-parts versions that force a `systems` declaration
+  once any `perSystem` definition exists;
 - sets `flake.nixosConfigurations = (realize { composed; terminals; extraModules; }).nixos or { }` —
   the `nixos` class realized per host from compose's `hosts` projection (class-major: a host with no
   `nixos` content is not built). `terminals` is `gen.terminals` with a default `nixos` terminal from
@@ -150,7 +151,7 @@ From that one import the module:
 | `inject` | `attrsOf raw` | `{ genValues = <values>; }` | resolved values to inject, keyed by arg name |
 | `injectPerSystem` | `bool` | `false` | also inject `inject` into perSystem args (opt-in) |
 | `nixpkgs` | `nullOr raw` | `inputs.nixpkgs` | nixpkgs used to **build** the systems (default `nixos` terminal) |
-| `terminals` | `attrsOf raw` | `{ }` | class-keyed terminal registry (a `nixos` one defaults in from `nixpkgs`) |
+| `terminals` | `attrsOf raw` | `{ }` | class-keyed terminal registry (a `nixos` one defaults in from `nixpkgs`; `gen.nixpkgs = null` or your own `terminals.nixos` suppresses it) |
 | `extraModules` | `attrsOf (listOf deferredModule)` | `{ }` | per-host extra NixOS modules |
 | `composed` | `raw` (read-only) | the compose result | `values` / `aspects` / `hosts` handle |
 | `realized` | `raw` (read-only) | the realize result | class-major `{ <class>.<host> = artifact; }` handle |
