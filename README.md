@@ -91,11 +91,11 @@ surfaces purely — no nixpkgs `lib`.
   aspects).
 - `hosts` — the per-host `(class, host)` projection driven by each host's `aspects` membership:
   `{ <host> = { bindings = { host = <resolved instance>; }; classes = { <class> = [ <deferredModule> ]; }; }; }`.
-  This is the **build** surface `mkSystems` consumes; the deferredModules stay unforced until the
+  This is the **build** surface `realize` consumes; the deferredModules stay unforced until the
   terminal imports them.
 
 The projection is exercised by `ci/tests/compose.nix` (values/aspects/hosts) and
-`ci/tests/terminal.nix` (the hosts projection + `mkSystems`) against the fixture tree under
+`ci/tests/terminal.nix` (the hosts projection + `realize`/`terminals`) against the fixture tree under
 `ci/tests/_fixtures/tree/`.
 
 ## `flakeModules.default` — flake-parts ergonomics
@@ -122,8 +122,9 @@ From that one import the module:
 - runs `compose { inherit (config.gen) tree modules specialArgs; }` **once**;
 - injects the resolved values under `config.gen.inject` names (default `{ genValues = <values>; }`,
   derived by reusing `injectArgs`) into **both** the top-level flake args and every `perSystem` arg;
-- sets `flake.nixosConfigurations = mkSystems { hostContent; nixpkgs = config.gen.nixpkgs; extraModules; }`
-  — the `hostContent` param keeps its name, now fed by compose's `hosts` projection (`composed.hosts`).
+- sets `flake.nixosConfigurations = (realize { composed; terminals.nixos = terminals.nixosSystem { nixpkgs = config.gen.nixpkgs; }; extraModules; }).nixos`
+  — the `nixos` class realized per host from compose's `hosts` projection (class-major: a host with
+  no `nixos` content is not built).
 
 `options.gen`:
 
@@ -151,8 +152,8 @@ consumer that proves this end-to-end).
 
 ## Purity
 
-The pure core (`lib/compose.nix`, `lib/inject.nix`) is nixpkgs-lib-free, enforced by
-`ci/tests/purity.nix`. The terminal `lib/systems.nix` (the `nixpkgs.lib.nixosSystem` boundary) and
+The pure core (`lib/compose.nix`, `lib/inject.nix`, `lib/realize.nix`) is nixpkgs-lib-free, enforced
+by `ci/tests/purity.nix`. The terminal `lib/terminals.nix` (the `nixpkgs.lib.nixosSystem` boundary) and
 the root `flakeModule.nix` (the flake-parts host — uses `lib.mkOption`/`lib.types` supplied by the
 consumer's eval) are the sanctioned exclusions. nixpkgs is pulled only in `ci/` (the nix-unit
 harness). Run the tests with `nix flake check ./ci`.
@@ -164,9 +165,9 @@ $ nix flake check ./ci
 ```
 
 The nix-unit suites exercise the projection and the terminal: `ci/tests/compose.nix`
-(`values`/`aspects`/`hosts`), `ci/tests/terminal.nix` (the `hosts` projection +
-`mkSystems`), `ci/tests/flake-module.nix` (the end-to-end fixture consumer that proves the
-invariant), and `ci/tests/purity.nix` (the pure core is nixpkgs-lib-free).
+(`values`/`aspects`/`hosts`), `ci/tests/terminal.nix` (the `hosts` projection + `realize`/`terminals`),
+`ci/tests/flake-module.nix` (the end-to-end fixture consumer that proves the invariant), and
+`ci/tests/purity.nix` (the pure core is nixpkgs-lib-free).
 
 ## License
 

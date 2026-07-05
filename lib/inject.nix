@@ -2,7 +2,7 @@
 #
 # Given a `compose` result, produces a plain nixpkgs MODULE (an attrset) that ONLY sets
 # `_module.args`, exposing the resolved config VALUES to a consumer's nixpkgs eval so its modules can
-# QUERY them (`{ genValues, ... }: … genValues.hosts.<h>.addr …`). This is distinct from `mkSystems`:
+# QUERY them (`{ genValues, ... }: … genValues.hosts.<h>.addr …`). This is distinct from `realize`:
 # it injects DATA for querying, not class deferredModules for building.
 #
 # It is PURE — pure packaging of already-resolved values; no nixpkgs `lib` is touched and NO gen TYPE

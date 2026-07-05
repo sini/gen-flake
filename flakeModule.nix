@@ -139,6 +139,6 @@ in
         inherit composed;
         terminals.nixos = genFlake.terminals.nixosSystem { nixpkgs = cfg.nixpkgs; };
         extraModules = cfg.extraModules;
-      }).nixos or { };
+      }).nixos;
   };
 }

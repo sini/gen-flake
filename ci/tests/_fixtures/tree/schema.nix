@@ -6,8 +6,8 @@
 # no nixpkgs `lib`, no `mkOption` from nixpkgs. `config` is the fixpoint config (evalModuleTree
 # exposes it to module functions), so `config.schema.host` is the self-referential kind.
 #
-# Each host carries an `aspects` membership list (the aspect names delivered to it). The terminal
-# (T6 `mkSystems`) uses this list to PROJECT the flat aspect registry to per-host class content:
+# Each host carries an `aspects` membership list (the aspect names delivered to it). `compose` uses
+# this list to PROJECT the flat aspect registry to per-host class content:
 # igloo declares `web`, iceberg declares none — proving per-host differentiation.
 {
   config,
