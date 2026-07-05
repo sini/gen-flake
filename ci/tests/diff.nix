@@ -202,6 +202,17 @@ in
   # never the added `boom`, so deep-forcing `changed` succeeds — the throw fires only if `perLoc.boom`
   # is read.
   flake.tests.diff-lazy = {
+    # Building the diff result forces NOTHING: reading its key SET (the WHNF spine) touches no field
+    # thunk, so even a diff carrying a throwing leaf yields its shape without firing.
+    test-building-result-forces-nothing = {
+      expr = builtins.attrNames dLazy;
+      expected = [
+        "added"
+        "changed"
+        "perLoc"
+        "removed"
+      ];
+    };
     # `changed` is `[ "alpha" ]`; deep-forcing it does not force the throwing `boom` leaf.
     test-changed-does-not-force-unrelated-throw = {
       expr = builtins.deepSeq dLazy.changed dLazy.changed;

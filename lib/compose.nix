@@ -214,7 +214,7 @@ let
       # defaulted; }` per declared-option loc, a reduced record per freeform loc). Costs nothing until
       # read; reading a declared record's fields discharges that loc's contributing defs to WHNF but
       # never forces the merged value (gen-merge README §Provenance). `lib.diff` locates its value diff
-      # over this channel; the A4 override oracle folds its digest.
+      # over this channel; the override cold-parity oracle folds its digest.
       provenance = result.provenance;
 
       # `override edits` → a fresh `compose` of the ORIGINAL args merged with `edits` (the merge law

@@ -130,14 +130,26 @@ diff a b ::
   absent), the `after` value (in `b`, `null` when absent), and the b-side provenance `defs` (the
   definitions responsible; `null` for a removed loc).
 
+For example, diffing a base compose against one that forces a single leaf:
+
+```nix
+diff cBase cAlpha
+# ⇒ { changed = [ "alpha" ]; added = [ ]; removed = [ ];
+#     perLoc.alpha = { before = "a0"; after = "a1"; defs = [ { file = "…"; priority = 50; } … ]; }; }
+```
+
 Leaves are compared by `toJSON` equality with functions deep-nulled, so a `function ↔ data` flip
 still registers, but two **different** functions compare equal (documented caveat — a leaf that is a
 function on both sides is treated as unchanged).
 
-`diff` is **lazy**: building the result forces nothing; reading `added` / `removed` walks the two
-provenance spines only (no config value); reading `changed` additionally `toJSON`-compares the
-**shared** leaves; reading a `perLoc` entry forces just that loc. An unrelated throwing leaf present
-on only one side never fires when `changed` is read. Exercised by `ci/tests/diff.nix`.
+`diff` is **lazy**, but note the intrinsic coupling of a value diff: building the result forces
+nothing; reading `added` / `removed` walks the two provenance spines only (no config value); reading
+`changed` `toJSON`-compares the **shared** leaves. Forcing `perLoc` — even just its key set — forces
+the `changed`/`added`/`removed` partition, so it pays that full shared-leaf comparison (a shared leaf
+that throws will throw when any `perLoc.<loc>` is reached, whichever entry you asked for); an
+individual `perLoc.<loc>` read then adds only that loc's `before`/`after`/`defs` on top. An unrelated
+throwing leaf present on **only one** side never fires when `changed` (or `added`/`removed`) is read.
+Exercised by `ci/tests/diff.nix`.
 
 ## `flakeModules.default` — flake-parts ergonomics
 

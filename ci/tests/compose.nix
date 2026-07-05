@@ -431,8 +431,8 @@ in
     # later memoized `override` must still pass THIS. Both halves are compared with functions dropped
     # to `null` (`dropFns`), so a corruption anywhere — instances, aspects registry, schema topology,
     # OR the per-loc provenance records — moves the bytes; functions are nulled (not skipped) because
-    # `toJSON` cannot cross them. The provenance half is the digest the A4 override oracle folds:
-    # forcing it discharges every declared loc's defs to WHNF (never the merged value).
+    # `toJSON` cannot cross them. The provenance half is the digest the override cold-parity oracle
+    # folds: forcing it discharges every declared loc's defs to WHNF (never the merged value).
     test-cold-parity-force = {
       expr = {
         values = builtins.toJSON (dropFns ovColdOverride.values);

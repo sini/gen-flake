@@ -3,7 +3,8 @@
 # `diff a b` compares the resolved `values` of two compose results, LOCATED by their engine
 # `provenance` channels (gen-merge's always-on per-loc record tree, mirroring `config`'s loc
 # structure). It answers "which option locs gained / lost / changed a value between compose `a` and
-# compose `b`, and which definitions are responsible?" — the query the A4 override oracle folds over.
+# compose `b`, and which definitions are responsible?" — the query the override cold-parity oracle
+# folds over.
 #
 #   diff a b :: { changed; added; removed; perLoc = { "<loc>" = { before; after; defs; }; }; }
 #     changed  — loc strings present in BOTH `a` and `b` whose value differs (leaf comparison below).
@@ -37,9 +38,13 @@
 #   * reading `changed` additionally forces, per SHARED loc, that leaf's value in both configs (the
 #     `toJSON` comparison). A loc that is added/removed (not shared) is never compared, so an
 #     unrelated throwing leaf that exists in only one config never fires when `changed` is read.
-#   * reading a `perLoc.<loc>` entry forces that loc's `before`/`after` value (a WHNF path descent)
-#     and, for `defs`, that loc's provenance record `defs` — which per gen-merge's forcing contract
-#     discharges THAT loc's contributing defs to WHNF (never the merged value elsewhere).
+#   * forcing `perLoc` — even to its KEY SET — forces the changed / added / removed partition, and
+#     computing `changed` runs the `toJSON` comparison of EVERY shared leaf. So merely reaching
+#     `perLoc.<loc>` pays the full shared-leaf comparison cost (a shared leaf that throws will throw
+#     here regardless of WHICH entry you asked for — the coupling is intrinsic to a value-diff). An
+#     individual `perLoc.<loc>` read then adds only THAT loc's `before` / `after` (a WHNF path
+#     descent) and `defs` (the b-side record `defs`, discharging that loc's contributing defs to
+#     WHNF per gen-merge's forcing contract) on top of that partition cost.
 #
 # PURE — builtins only, no nixpkgs `lib` (ci/tests/purity.nix scans this file as strict core).
 {
@@ -51,7 +56,11 @@
 
       # A provenance leaf record carries all four fields (declared: rich; freeform: last three null).
       # A group node is a nested attrset of child locs and has none. Membership forces the node to
-      # WHNF only — it never reads `defs`, so it never runs the record's property-discharge.
+      # WHNF only — it never reads `defs`, so it never runs the record's property-discharge. STRUCTURAL
+      # ASSUMPTION (failure mode): a config GROUP whose children are literally ALL FOUR of
+      # `defs`/`winners`/`priority`/`defaulted` (as declared options) would misclassify as a leaf here —
+      # the record shape is the only signal the engine gives, so those four names are effectively
+      # reserved at a group node. No engine surface collides with them today.
       isProvLeaf = v: builtins.isAttrs v && v ? defs && v ? winners && v ? priority && v ? defaulted;
 
       # Deep-replace every function with `null` so `toJSON` can cross a value whose leaves resolved to
