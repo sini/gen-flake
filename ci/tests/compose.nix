@@ -426,14 +426,22 @@ in
       expr = builtins.toJSON (dropFns ovChained.values);
       expected = builtins.toJSON (dropFns ovManualChain.values);
     };
-    # COLD-PARITY TOOTH (standing gate) — `override`'s FULL resolved `values` are byte-equal to
-    # `compose` of the hand-appended module list for an mkForce edit. A later memoized `override` must
-    # still pass THIS. Compared over the whole `values` with functions dropped to `null` (`dropFns`),
-    # so a corruption anywhere — instances, aspects registry, or schema topology — moves the bytes;
-    # functions are nulled (not skipped) because `toJSON` cannot cross them.
+    # COLD-PARITY TOOTH (standing gate) — `override`'s FULL resolved `values` AND its `provenance`
+    # channel are byte-equal to `compose` of the hand-appended module list for an mkForce edit. A
+    # later memoized `override` must still pass THIS. Both halves are compared with functions dropped
+    # to `null` (`dropFns`), so a corruption anywhere — instances, aspects registry, schema topology,
+    # OR the per-loc provenance records — moves the bytes; functions are nulled (not skipped) because
+    # `toJSON` cannot cross them. The provenance half is the digest the A4 override oracle folds:
+    # forcing it discharges every declared loc's defs to WHNF (never the merged value).
     test-cold-parity-force = {
-      expr = builtins.toJSON (dropFns ovColdOverride.values);
-      expected = builtins.toJSON (dropFns ovColdManual.values);
+      expr = {
+        values = builtins.toJSON (dropFns ovColdOverride.values);
+        provenance = builtins.toJSON (dropFns ovColdOverride.provenance);
+      };
+      expected = {
+        values = builtins.toJSON (dropFns ovColdManual.values);
+        provenance = builtins.toJSON (dropFns ovColdManual.provenance);
+      };
     };
     # `override`'s result carries `override` AGAIN — the chainability shape (cold re-compose provides
     # it naturally at every depth).

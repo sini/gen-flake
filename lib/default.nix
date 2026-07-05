@@ -1,11 +1,12 @@
 # gen-flake public API — the composition boundary of the pure-gen module ecosystem.
 #
 # Two halves:
-#   * PURE core (`compose`, `injectArgs`, `realize`) — nixpkgs-lib-free; drives gen-merge's byte-mode
-#     `evalModuleTree`, never `lib.evalModules`. `compose` resolves a gen module tree to VALUES + the
-#     flat aspect registry + a per-host build projection; `injectArgs` packages those VALUES as a
-#     query module; `realize` folds the projection through a per-class terminal into class-major
-#     artifacts. gen TYPES never leave this pure eval.
+#   * PURE core (`compose`, `injectArgs`, `realize`, `diff`) — nixpkgs-lib-free; drives gen-merge's
+#     byte-mode `evalModuleTree`, never `lib.evalModules`. `compose` resolves a gen module tree to
+#     VALUES + the flat aspect registry + a per-host build projection + the engine `provenance`
+#     channel; `injectArgs` packages those VALUES as a query module; `realize` folds the projection
+#     through a per-class terminal into class-major artifacts; `diff` compares two compose results by
+#     value, located by provenance. gen TYPES never leave this pure eval.
 #   * TERMINALS (`terminals`) — the ONE sanctioned nixpkgs boundary, isolated in ./terminals.nix,
 #     where `nixpkgs.lib.nixosSystem` legitimately enters. Only resolved VALUES + unforced class
 #     deferredModules cross into it.
@@ -24,9 +25,9 @@
 #                the PURE core (compose/inject/realize) never receives it. Optional (default null) so
 #                the standalone / query paths need no nixpkgs; only a nixos build requires one.
 #
-# Purity is enforced by ci/tests/purity.nix: compose.nix + inject.nix + realize.nix are strictly
-# nixpkgs-free; the wiring (this file, the flakes) may NAME `nixpkgs`/`genBind` but never CALL a
-# module-system function; terminals.nix is the excluded terminal.
+# Purity is enforced by ci/tests/purity.nix: compose.nix + inject.nix + realize.nix + diff.nix are
+# strictly nixpkgs-free; the wiring (this file, the flakes) may NAME `nixpkgs`/`genBind` but never CALL
+# a module-system function; terminals.nix is the excluded terminal.
 {
   importTree,
   genMerge,
@@ -53,6 +54,8 @@ let
 
   realizeLib = import ./realize.nix;
 
+  diffLib = import ./diff.nix;
+
   terminalsLib = import ./terminals.nix {
     inherit genBind nixpkgs;
   };
@@ -61,5 +64,6 @@ in
   inherit (composeLib) compose;
   inherit (injectLib) injectArgs;
   inherit (realizeLib) realize;
+  inherit (diffLib) diff;
   terminals = terminalsLib;
 }

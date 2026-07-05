@@ -1,9 +1,10 @@
 # `compose` — the PURE composition entry point of gen-flake.
 #
 # Loads a gen module tree and resolves it PURELY via gen-merge's byte-mode `evalModuleTree` (the
-# nixpkgs-free `lib.evalModules` replacement), then projects the result to the three things a
-# consumer eval needs: resolved VALUES + the flat aspect registry + a per-host build projection. No
-# nixpkgs is touched here.
+# nixpkgs-free `lib.evalModules` replacement), then projects the result to what a consumer eval needs:
+# resolved VALUES + the flat aspect registry + a per-host build projection + the engine `provenance`
+# channel (VERBATIM — the per-loc record tree `lib.diff` locates its value diff over). No nixpkgs is
+# touched here.
 #
 #   importTree : the import-tree fork's callable object. `(importTree.addPath dir).files` returns a
 #                BARE PATH LIST; gen-merge imports each path leaf (path-leaf import, #20), so a tree
@@ -207,6 +208,14 @@ let
       # partial-applies `bindings` into `classes.<class>` and hands the result to a system. PURE —
       # the deferredModules remain unforced until the terminal's nixpkgs eval imports them.
       hosts = projectHosts selectHosts cfg aspects;
+
+      # The engine PROVENANCE channel, projected VERBATIM — gen-merge's always-on lazy per-loc record
+      # tree, mirroring `values`'s loc structure (a declared record `{ defs; winners; priority;
+      # defaulted; }` per declared-option loc, a reduced record per freeform loc). Costs nothing until
+      # read; reading a declared record's fields discharges that loc's contributing defs to WHNF but
+      # never forces the merged value (gen-merge README §Provenance). `lib.diff` locates its value diff
+      # over this channel; the A4 override oracle folds its digest.
+      provenance = result.provenance;
 
       # `override edits` → a fresh `compose` of the ORIGINAL args merged with `edits` (the merge law
       # in mergeComposeArgs). COLD: literally re-invoke `compose`, so the result carries `override`

@@ -68,7 +68,7 @@ set; `lib.compose` is also the entry point for consumers not on flake-parts.
 ```nix
 compose ::
   { tree ? <path>, modules ? [ ], specialArgs ? { }, engineArgs ? { }, selectHosts ? (v: v.hosts or { }) }
-  -> { values; aspects; hosts; override; }
+  -> { values; aspects; hosts; provenance; override; }
 ```
 
 - `tree` — a directory of gen definition modules, loaded as a **bare path list** via the
@@ -98,14 +98,46 @@ surfaces purely — no nixpkgs `lib`.
   `{ <host> = { bindings = { host = <resolved instance>; }; classes = { <class> = [ <deferredModule> ]; }; }; }`.
   This is the **build** surface `realize` consumes; the deferredModules stay unforced until the
   terminal imports them.
+- `provenance` — the engine provenance channel projected **verbatim**: gen-merge's always-on lazy
+  per-loc record tree, mirroring `values`'s loc structure. A declared-option loc carries a rich
+  record `{ defs; winners; priority; defaulted; }`; a freeform loc carries a reduced record (last
+  three `null`). It costs nothing until read; reading a declared record's fields discharges that
+  loc's contributing defs to WHNF but never forces the merged value (see gen-merge README
+  §Provenance). This is what `lib.diff` locates its value diff over.
 - `override` — `edits → a fresh compose result`: re-invokes `compose` with the original args merged
   with `edits` per the merge law — `modules` **appended**, `specialArgs`/`engineArgs` shallow-merged
   (edit wins), `tree`/`selectHosts` **replaced** when given. **Cold** (a literal re-compose), so the
   result carries `override` again — **chainable**: `(composed.override e1).override e2`.
 
-The projection is exercised by `ci/tests/compose.nix` (values/aspects/hosts) and
-`ci/tests/terminal.nix` (the hosts projection + `realize`/`terminals`) against the fixture tree under
-`ci/tests/_fixtures/tree/`.
+The projection is exercised by `ci/tests/compose.nix` (values/aspects/hosts + the provenance
+cold-parity tooth) and `ci/tests/terminal.nix` (the hosts projection + `realize`/`terminals`) against
+the fixture tree under `ci/tests/_fixtures/tree/`.
+
+## `lib.diff`
+
+`diff a b` compares the resolved `values` of two compose results, located by their `provenance`
+channels, and reports which option **locs** gained / lost / changed a value:
+
+```nix
+diff a b ::
+  { changed; added; removed; perLoc = { "<loc>" = { before; after; defs; }; }; }
+```
+
+- `changed` — loc strings present in **both** and whose value differs; `added` / `removed` — loc
+  strings present only in `b` / only in `a` (a loc = a dot-joined option path, gen-merge's
+  `showOption` convention).
+- `perLoc.<loc>` — for each changed / added / removed loc: the `before` value (in `a`, `null` when
+  absent), the `after` value (in `b`, `null` when absent), and the b-side provenance `defs` (the
+  definitions responsible; `null` for a removed loc).
+
+Leaves are compared by `toJSON` equality with functions deep-nulled, so a `function ↔ data` flip
+still registers, but two **different** functions compare equal (documented caveat — a leaf that is a
+function on both sides is treated as unchanged).
+
+`diff` is **lazy**: building the result forces nothing; reading `added` / `removed` walks the two
+provenance spines only (no config value); reading `changed` additionally `toJSON`-compares the
+**shared** leaves; reading a `perLoc` entry forces just that loc. An unrelated throwing leaf present
+on only one side never fires when `changed` is read. Exercised by `ci/tests/diff.nix`.
 
 ## `flakeModules.default` — flake-parts ergonomics
 
