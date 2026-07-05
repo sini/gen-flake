@@ -67,8 +67,8 @@ set; `lib.compose` is also the entry point for consumers not on flake-parts.
 
 ```nix
 compose ::
-  { tree ? <path>, modules ? [ ], specialArgs ? { } }
-  -> { values; aspects; hosts; }
+  { tree ? <path>, modules ? [ ], specialArgs ? { }, engineArgs ? { }, selectHosts ? (v: v.hosts or { }) }
+  -> { values; aspects; hosts; override; }
 ```
 
 - `tree` — a directory of gen definition modules, loaded as a **bare path list** via the
@@ -76,6 +76,11 @@ compose ::
   (gen-merge path-leaf import).
 - `modules` — extra inline modules appended to the tree.
 - `specialArgs` — extra module args, merged over the threaded gen libs.
+- `engineArgs` — threaded **verbatim** into `gen-merge.evalModuleTree` (e.g. `check = false` to
+  disable the unknown-key orphan check, `prefix` to nest). Carrying `modules`/`specialArgs` here
+  **throws** — compose owns those engine keys.
+- `selectHosts` — `values → { <host> = instance; }`, names which resolved attrset holds the host
+  instances (default `v: v.hosts or { }`; a nested registry passes `v: v.fleet.hosts`).
 
 The gen constructors (`genMerge`, `genSchema`, `genAspects`, `genTypes`, `genPrelude`) are threaded
 into every module via `evalModuleTree`'s `specialArgs`, so definition modules declare their typed
@@ -93,6 +98,10 @@ surfaces purely — no nixpkgs `lib`.
   `{ <host> = { bindings = { host = <resolved instance>; }; classes = { <class> = [ <deferredModule> ]; }; }; }`.
   This is the **build** surface `realize` consumes; the deferredModules stay unforced until the
   terminal imports them.
+- `override` — `edits → a fresh compose result`: re-invokes `compose` with the original args merged
+  with `edits` per the merge law — `modules` **appended**, `specialArgs`/`engineArgs` shallow-merged
+  (edit wins), `tree`/`selectHosts` **replaced** when given. **Cold** (a literal re-compose), so the
+  result carries `override` again — **chainable**: `(composed.override e1).override e2`.
 
 The projection is exercised by `ci/tests/compose.nix` (values/aspects/hosts) and
 `ci/tests/terminal.nix` (the hosts projection + `realize`/`terminals`) against the fixture tree under

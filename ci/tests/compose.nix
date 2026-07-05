@@ -419,6 +419,9 @@ in
     # resolved `values` with functions dropped to `null` (`dropFns`): `toJSON` cannot cross the
     # schema type-checkers / aspect `nixos` deferredModules, so they are nulled — but nulled (not
     # skipped) means any topology change still surfaces in the byte output.
+    # STANDING GATE (with test-cold-parity-force) — a later memoized `override` must pass THIS
+    # unchanged; don't touch. The two teeth (chain associativity + single-edit cold-parity) together
+    # are the byte oracle pinning a memoized `override` to the cold re-compose contract.
     test-chain-equals-manual-merge = {
       expr = builtins.toJSON (dropFns ovChained.values);
       expected = builtins.toJSON (dropFns ovManualChain.values);
