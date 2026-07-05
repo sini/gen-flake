@@ -199,6 +199,22 @@ let
   ovColdManual = genFlake.compose (
     ovBaseArgs // { modules = ovBaseArgs.modules ++ [ ovForceAddr ]; }
   );
+
+  # `dropFns` — deep-replace every function in a value with `null`, so `toJSON` can cross the whole
+  # resolved `values` (schema option type-checkers, aspect `nixos` deferredModules). Functions are
+  # NULLED, not skipped, so a topology change (a key gained/lost, a function↔data flip) still moves
+  # the byte output. This lets the cold-parity teeth compare the FULL resolved config, not a slice —
+  # a corruption confined to the aspects registry or schema topology cannot slip past.
+  dropFns =
+    x:
+    if builtins.isFunction x then
+      null
+    else if builtins.isList x then
+      map dropFns x
+    else if builtins.isAttrs x then
+      builtins.mapAttrs (_: dropFns) x
+    else
+      x;
 in
 {
   flake.tests.compose = {
@@ -399,25 +415,22 @@ in
       expected = true;
     };
     # Chain — `(base.override e1).override e2` is byte-equal to `compose` of the hand-merged args
-    # (modules APPENDED in order, specialArgs shallow-merged left-to-right). Compared over the
-    # function-free resolved slice: `hosts` (modules-append lands here as n1/n2/n3) + `marker`
-    # (specialArgs lands here). Full `values` carries functions (schema type-checkers, the aspect's
-    # `nixos` deferredModule), which `toJSON`/`==` cannot cross — the resolved data is the comparable.
+    # (modules APPENDED in order, specialArgs shallow-merged left-to-right). Compared over the FULL
+    # resolved `values` with functions dropped to `null` (`dropFns`): `toJSON` cannot cross the
+    # schema type-checkers / aspect `nixos` deferredModules, so they are nulled — but nulled (not
+    # skipped) means any topology change still surfaces in the byte output.
     test-chain-equals-manual-merge = {
-      expr = builtins.toJSON {
-        inherit (ovChained.values) hosts marker;
-      };
-      expected = builtins.toJSON {
-        inherit (ovManualChain.values) hosts marker;
-      };
+      expr = builtins.toJSON (dropFns ovChained.values);
+      expected = builtins.toJSON (dropFns ovManualChain.values);
     };
-    # COLD-PARITY TOOTH (standing gate) — `override`'s resolved instances are byte-equal to `compose`
-    # of the hand-appended module list for an mkForce edit (the force lands in `values.hosts`). A
-    # later memoized `override` must still pass THIS. (Compared over `values.hosts`, the function-free
-    # resolved-instance slice — full `values` carries type-checker/deferredModule functions.)
+    # COLD-PARITY TOOTH (standing gate) — `override`'s FULL resolved `values` are byte-equal to
+    # `compose` of the hand-appended module list for an mkForce edit. A later memoized `override` must
+    # still pass THIS. Compared over the whole `values` with functions dropped to `null` (`dropFns`),
+    # so a corruption anywhere — instances, aspects registry, or schema topology — moves the bytes;
+    # functions are nulled (not skipped) because `toJSON` cannot cross them.
     test-cold-parity-force = {
-      expr = builtins.toJSON ovColdOverride.values.hosts;
-      expected = builtins.toJSON ovColdManual.values.hosts;
+      expr = builtins.toJSON (dropFns ovColdOverride.values);
+      expected = builtins.toJSON (dropFns ovColdManual.values);
     };
     # `override`'s result carries `override` AGAIN — the chainability shape (cold re-compose provides
     # it naturally at every depth).
