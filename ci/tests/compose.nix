@@ -7,7 +7,7 @@
 #             deferredModule content (e.g. `.nixos`), the raw material a consumer injects into its
 #             nixpkgs eval. This is the flat QUERY surface.
 #   hosts   — the per-host build projection driven by each host's `aspects` membership.
-{ genFlake, ... }:
+{ genFlake, genMerge, ... }:
 let
   result = genFlake.compose { tree = ./_fixtures/tree; };
 
@@ -198,6 +198,52 @@ let
   ovColdOverride = ovBase.override { modules = [ ovForceAddr ]; };
   ovColdManual = genFlake.compose (
     ovBaseArgs // { modules = ovBaseArgs.modules ++ [ ovForceAddr ]; }
+  );
+
+  # ---- warm override fixtures -----------------------------------------------------------------------
+  # Two stacked modules-ONLY overrides — each fires the WARM path (the edit carries only `modules`). The
+  # chained warm result must byte-equal `compose` of the twice-merged args (modules appended in order,
+  # specialArgs untouched): the standing cold-parity oracle, now over a warm→warm chain.
+  ovChainedWarm = (ovBase.override { modules = [ ovAddN2 ]; }).override { modules = [ ovAddN3 ]; };
+  ovManualWarmChain = genFlake.compose (
+    ovBaseArgs
+    // {
+      modules = ovBaseArgs.modules ++ [
+        ovAddN2
+        ovAddN3
+      ];
+    }
+  );
+
+  # A CLEAN attrset module (no function head ⇒ config-independent) declaring+defining a leaf the
+  # `ovForceAddr` edit never touches. genMerge's mkOption/types are forced HERE at test-eval time, so
+  # the module stays a bare attrset (classified CLEAN) — the warm predicate then marks `kept` REUSABLE
+  # (outside the dirty footprint) and splices it from the previous result.
+  ovCleanKept = {
+    options.kept = genMerge.mkOption {
+      type = genMerge.types.str;
+      default = "base";
+    };
+    config.kept = "base";
+  };
+  ovTraceBaseArgs = {
+    modules = [
+      ovSchema
+      ovAspect
+      ovMarker
+      ovCleanKept
+    ];
+    specialArgs = {
+      markerArg = "m0";
+      keepArg = "k0";
+    };
+  };
+  ovTraceBase = genFlake.compose ovTraceBaseArgs;
+  # A modules-only override of that base → WARM. Its trace partitions locs into reused (the clean,
+  # untouched `kept`) and remerged (the `hosts` registry the mkForce edit re-merges).
+  ovWarm = ovTraceBase.override { modules = [ ovForceAddr ]; };
+  ovTraceManual = genFlake.compose (
+    ovTraceBaseArgs // { modules = ovTraceBaseArgs.modules ++ [ ovForceAddr ]; }
   );
 
   # `dropFns` — deep-replace every function in a value with `null`, so `toJSON` can cross the whole
@@ -448,6 +494,94 @@ in
     test-override-is-chainable = {
       expr = builtins.isFunction (ovBase.override { }).override;
       expected = true;
+    };
+
+    # ---- trace + warm path -------------------------------------------------------------------------
+    # A base (plain) compose carries NO `trace` — the field is override-only observability (design
+    # spec §4). An override result DOES carry it.
+    test-base-has-no-trace = {
+      expr = ovBase ? trace;
+      expected = false;
+    };
+    test-override-has-trace = {
+      expr = (ovBase.override { modules = [ ovForceAddr ]; }) ? trace;
+      expected = true;
+    };
+
+    # CHAINED-WARM tooth — two stacked modules-append overrides (each WARM) byte-equal `compose` of the
+    # twice-merged args, over BOTH `values` and the `provenance` digest (functions dropped to null, so
+    # any topology/prov corruption still moves the bytes). The standing cold-parity oracle, extended to
+    # a warm→warm chain: the whole point is warm ≡ cold on values + provenance.
+    test-chain-warm-equals-manual = {
+      expr = {
+        values = builtins.toJSON (dropFns ovChainedWarm.values);
+        provenance = builtins.toJSON (dropFns ovChainedWarm.provenance);
+      };
+      expected = {
+        values = builtins.toJSON (dropFns ovManualWarmChain.values);
+        provenance = builtins.toJSON (dropFns ovManualWarmChain.provenance);
+      };
+    };
+
+    # COLD-FALLBACK trace — a specialArgs edit is NOT a modules-append, so warm refuses: `mode = "cold"`
+    # with a stated `reason` (the trace is honest about the fallback; the result is still correct via
+    # the cold re-compose, exercised by the standing specialArgs teeth above).
+    test-cold-fallback-trace = {
+      expr =
+        let
+          t =
+            (ovBase.override {
+              specialArgs = {
+                markerArg = "m1";
+              };
+            }).trace;
+        in
+        {
+          mode = t.mode;
+          hasReason = t.reason != null;
+        };
+      expected = {
+        mode = "cold";
+        hasReason = true;
+      };
+    };
+
+    # WARM trace shape — a modules-append override fires warm (`mode = "warm"`); the loc partition is
+    # sane on the fixture (spot membership, not exhaustive): the clean, edit-untouched `kept` leaf is
+    # REUSED (spliced from the prev result), and the `hosts` registry the mkForce edit re-merges is
+    # REMERGED. The `modules` classification counts the fixture: 1 clean (ovCleanKept), 3 dirty
+    # (ovSchema/ovAspect/ovMarker — function modules), 1 edited (the appended ovForceAddr).
+    test-warm-trace-mode = {
+      expr = ovWarm.trace.mode;
+      expected = "warm";
+    };
+    test-warm-trace-reused-clean-leaf = {
+      expr = builtins.elem "kept" ovWarm.trace.reused;
+      expected = true;
+    };
+    test-warm-trace-remerged-forced-registry = {
+      expr = ovWarm.trace.remerged ? hosts;
+      expected = true;
+    };
+    test-warm-trace-classification = {
+      expr = builtins.mapAttrs (_: builtins.length) ovWarm.trace.modules;
+      expected = {
+        clean = 1;
+        dirty = 3;
+        edited = 1;
+      };
+    };
+    # The warm reuse is byte-SOUND — the fixture that actually splices a clean leaf (`kept`) still
+    # equals cold manual over `values` AND `provenance`. A lying reuse would diverge here.
+    test-warm-trace-byte-parity = {
+      expr = {
+        values = builtins.toJSON (dropFns ovWarm.values);
+        provenance = builtins.toJSON (dropFns ovWarm.provenance);
+      };
+      expected = {
+        values = builtins.toJSON (dropFns ovTraceManual.values);
+        provenance = builtins.toJSON (dropFns ovTraceManual.provenance);
+      };
     };
   };
 }

@@ -138,8 +138,22 @@ let
       engineArgs = (orig.engineArgs or { }) // (edits.engineArgs or { });
     };
 
-  compose =
-    # `args@` keeps the ORIGINAL caller args attrset in scope for `override`'s cold re-compose
+  # `composeAt ctx args` — the engine invocation + the SHARED result projection. `ctx` records HOW this
+  # compose was reached, so a base compose and an override build the identical surface from one place:
+  #   warmFrom       previous FULL engine result to warm-splice against (null ⇒ the engine's cold path;
+  #                  gen-merge README §"Warm re-eval"). Threaded WHOLE — the engine's memo is its
+  #                  `config`/`provenance`/`freeformConfig`/`freeformProv`, so a projection would not do.
+  #   editedModules  the appended module LIST of a fired warm override (the engine flattens it itself —
+  #                  the flattened count is not caller-computable, `imports` expansion is config-dependent).
+  #   traced         attach the decision `trace` — override results carry it, a base compose does not.
+  # Base compose = `composeAt { }`; `override` re-enters with the warm decision + `traced = true`.
+  composeAt =
+    {
+      warmFrom ? null,
+      editedModules ? [ ],
+      traced ? false,
+    }:
+    # `args@` keeps the ORIGINAL caller args attrset in scope for `override`'s re-compose
     # (mergeComposeArgs reads them); the destructured formals below stay the working defaults.
     args@{
       # A directory of gen definition modules, loaded as a bare path list. `null` ⇒ no tree.
@@ -162,17 +176,25 @@ let
       # `_fixtures`-style subtree is auto-excluded from a sibling test load but still loadable here.
       treeModules = if tree == null then [ ] else (importTree.addPath tree).files;
 
-      # `modules`/`specialArgs` are compose's to set; an engineArgs key colliding with them would be
+      # `modules`/`specialArgs` are compose's to set; the warm knobs (`warmFrom`/`editedModules`) are
+      # compose-owned too — only `override` supplies them. An engineArgs key colliding with any would be
       # silently overridden by the `//` below, so name the offender(s) and throw instead.
       engineArgsCollisions = builtins.filter (k: engineArgs ? ${k}) [
         "modules"
         "specialArgs"
+        "warmFrom"
+        "editedModules"
       ];
       _engineArgsCheck =
         if engineArgsCollisions != [ ] then
           throw "compose: engineArgs must not carry ${builtins.concatStringsSep ", " engineArgsCollisions} — compose owns these engine keys"
         else
           null;
+
+      # The warm knobs reach the engine ONLY on a fired warm override (`warmFrom` non-null); a base
+      # compose and a cold override pass neither ⇒ the engine's documented zero-behaviour-change default
+      # (README §"Warm re-eval"). `editedModules` is the appended LIST, threaded whole (engine flattens).
+      warmKnobs = if warmFrom == null then { } else { inherit warmFrom editedModules; };
 
       result = builtins.seq _engineArgsCheck (
         genMerge.evalModuleTree (
@@ -181,6 +203,7 @@ let
             modules = treeModules ++ modules;
             specialArgs = genLibs // specialArgs;
           }
+          // warmKnobs
         )
       );
 
@@ -188,41 +211,92 @@ let
 
       # The flat aspect registry (keyed by aspect path). Absent an `aspects` surface, empty.
       aspects = if cfg ? aspects then genAspects.flatten cfg.aspects else { };
+
+      # ── the SHARED compose projection (values/aspects/hosts/provenance/override). Cold and warm build
+      # this IDENTICAL shape from one place; only `trace` (below, override-only) differs by call site.
+      projection = {
+        # Resolved config VALUES — a thin read of the fixpoint config: instances, id_hash, resolved
+        # refs, flattened surfaces. This is what a consumer eval injects into nixpkgs. gen TYPES stay
+        # behind in this pure eval; only these values cross the boundary.
+        values = cfg;
+
+        # The FLAT aspect registry (keyed by aspect path): each entry carries its per-class
+        # deferredModule fields (e.g. `.nixos`). The deferredModules are inspectable but unforced, so
+        # class bodies cross into nixpkgs unevaluated. This is the flat QUERY surface (gen-graph /
+        # gen-select queries over aspects); the per-host build shape is `hosts` below. Absent an
+        # `aspects` surface, this is empty.
+        inherit aspects;
+
+        # The per-host build projection — a host-keyed reshape of the flat registry,
+        # `{ <host> = { bindings; classes = { <class> = [ deferredModule ]; }; }; }`, driven by each
+        # host's `aspects` membership. This is what the terminal builds: per host, `wrapAll`
+        # partial-applies `bindings` into `classes.<class>` and hands the result to a system. PURE —
+        # the deferredModules remain unforced until the terminal's nixpkgs eval imports them.
+        hosts = projectHosts selectHosts cfg aspects;
+
+        # The engine PROVENANCE channel, projected VERBATIM — gen-merge's always-on lazy per-loc record
+        # tree, mirroring `values`'s loc structure (a declared record `{ defs; winners; priority;
+        # defaulted; }` per declared-option loc, a reduced record per freeform loc). Costs nothing until
+        # read; reading a declared record's fields discharges that loc's contributing defs to WHNF but
+        # never forces the merged value (gen-merge README §Provenance). `lib.diff` locates its value diff
+        # over this channel; the override cold-parity oracle folds its digest.
+        provenance = result.provenance;
+
+        # `override edits` → a fresh compose of the ORIGINAL args merged with `edits` (mergeComposeArgs).
+        # WARM-FIRE condition (design spec §1) — SYNTACTIC on the edit KEYS: warm fires iff `edits`
+        # carries ONLY `modules`. In that case mergeComposeArgs recomputes `orig.specialArgs // { }`,
+        # `orig.engineArgs // { }`, and the tree/selectHosts REPLACE-when-present clause as
+        # value-preserving no-ops (same keys, shared thunks), so the key check IS the proof that
+        # everything but the module list is unchanged and the engine's warm splice is sound. The
+        # captured `result` (this eval's FULL engine result — config/provenance/freeform memo) becomes
+        # the warmFrom and `edits.modules` the appended list. Any other edit key ⇒ warmFrom stays null ⇒
+        # cold (today's re-compose), stated in the trace. (A general `==` over specialArgs is not
+        # decidable/safe in Nix and is explicitly not attempted.) Override results are `traced`; the
+        # re-compose carries `override` again — chainable, and a chained warm threads THIS result as its
+        # own warmFrom (the engine reuses its freeform memo directly).
+        override =
+          edits:
+          let
+            warmFires = builtins.attrNames edits == [ "modules" ];
+          in
+          composeAt (
+            if warmFires then
+              {
+                warmFrom = result;
+                editedModules = edits.modules;
+                traced = true;
+              }
+            else
+              { traced = true; }
+          ) (mergeComposeArgs args edits);
+      };
+
+      # ── the memoization decision trace (design spec §4) — the engine's `warmDecision` projected
+      # VERBATIM. Present ONLY on override results (`traced`); a base compose omits it. Laziness cost:
+      # `mode` and `modules` are cheap (classification only); `reused` and `remerged` are
+      # O(declared-locs) spine-forcing when read — they enumerate the loc partition, never leaf values
+      # (gen-merge README §"Warm re-eval"). `mode = "cold"` (with a `reason`) when the fallback fired —
+      # no warmFrom (non-modules edit) or the engine's own disabledModules refusal.
+      trace =
+        let
+          d = result.warmDecision;
+        in
+        {
+          inherit (d)
+            mode
+            reason
+            reused
+            remerged
+            modules
+            ;
+        };
     in
-    {
-      # Resolved config VALUES — a thin read of the fixpoint config: instances, id_hash, resolved
-      # refs, flattened surfaces. This is what a consumer eval injects into nixpkgs. gen TYPES stay
-      # behind in this pure eval; only these values cross the boundary.
-      values = cfg;
+    if traced then projection // { inherit trace; } else projection;
 
-      # The FLAT aspect registry (keyed by aspect path): each entry carries its per-class
-      # deferredModule fields (e.g. `.nixos`). The deferredModules are inspectable but unforced, so
-      # class bodies cross into nixpkgs unevaluated. This is the flat QUERY surface (gen-graph /
-      # gen-select queries over aspects); the per-host build shape is `hosts` below. Absent an
-      # `aspects` surface, this is empty.
-      inherit aspects;
-
-      # The per-host build projection — a host-keyed reshape of the flat registry,
-      # `{ <host> = { bindings; classes = { <class> = [ deferredModule ]; }; }; }`, driven by each
-      # host's `aspects` membership. This is what the terminal builds: per host, `wrapAll`
-      # partial-applies `bindings` into `classes.<class>` and hands the result to a system. PURE —
-      # the deferredModules remain unforced until the terminal's nixpkgs eval imports them.
-      hosts = projectHosts selectHosts cfg aspects;
-
-      # The engine PROVENANCE channel, projected VERBATIM — gen-merge's always-on lazy per-loc record
-      # tree, mirroring `values`'s loc structure (a declared record `{ defs; winners; priority;
-      # defaulted; }` per declared-option loc, a reduced record per freeform loc). Costs nothing until
-      # read; reading a declared record's fields discharges that loc's contributing defs to WHNF but
-      # never forces the merged value (gen-merge README §Provenance). `lib.diff` locates its value diff
-      # over this channel; the override cold-parity oracle folds its digest.
-      provenance = result.provenance;
-
-      # `override edits` → a fresh `compose` of the ORIGINAL args merged with `edits` (the merge law
-      # in mergeComposeArgs). COLD: literally re-invoke `compose`, so the result carries `override`
-      # again (chainable at every depth) and there is nothing to keep in sync — the re-eval IS the
-      # result. A later memoized implementation swaps THIS body behind the same byte-for-byte contract.
-      override = edits: compose (mergeComposeArgs args edits);
-    };
+  # The public entry: a base compose — no warm context, no `trace`. `override` re-enters `composeAt`
+  # with the warm decision + `traced = true`, so the warm path lands BEHIND the standing byte-for-byte
+  # cold-parity oracle (warm ≡ cold on `values` AND `provenance`).
+  compose = composeAt { };
 in
 {
   inherit compose;

@@ -120,12 +120,45 @@ surfaces purely — no nixpkgs `lib`.
   it.
 - `override` — `edits → a fresh compose result`. Re-invokes `compose` with the original args merged
   with `edits` per the merge law — `modules` **appended**, `specialArgs`/`engineArgs` shallow-merged
-  (edit wins), `tree`/`selectHosts` **replaced** when given. **Cold** (a literal re-compose), so the
-  result carries `override` again — **chainable**: `(composed.override e1).override e2`. A later
-  memoized implementation swaps this body behind the same byte-for-byte contract.
+  (edit wins), `tree`/`selectHosts` **replaced** when given. The result carries `override` again —
+  **chainable**: `(composed.override e1).override e2`. An override result also carries a `trace`
+  (below); a plain compose does not.
 
-Exercised by `ci/tests/compose.nix` (values/aspects/hosts + the provenance cold-parity tooth and the
-`selectHosts` nested-registry fixture) against the fixture tree under `ci/tests/_fixtures/tree/`.
+### Warm override + `trace`
+
+A **modules-append** override (the edit carries **only** `modules`) runs the engine's *warm* path:
+`compose` threads the previous engine result as `warmFrom` and the appended list as `editedModules`,
+and the engine re-merges only the locs the edit's dirty footprint touches, splicing the rest from the
+previous result (gen-merge's [warm re-eval](https://github.com/sini/gen-merge#warm-re-eval-memoized-override) —
+sound under the config fixpoint; a `pureModule`-marked definition module recovers clean-module reuse
+past the function-module default). The firing condition is **syntactic on the edit keys** (`attrNames edits == [ "modules" ]`): mergeComposeArgs then recomputes everything but the module list as a
+value-preserving no-op, so the key check *is* the proof that only the modules changed. **Any other
+edit key ⇒ cold** — a literal re-compose, exactly the prior behaviour, stated in the trace.
+
+Warm is transparent: it lands **behind** the standing cold-parity oracle — `composed.override e` is
+byte-identical to `compose` of the hand-merged args over both `values` and `provenance`
+(`ci/tests/compose.nix`, `test-cold-parity-force` + the chained-warm tooth). The warm path is an
+optimization, never a semantics change.
+
+The override result's **`trace`** is the memoization decision, projected verbatim from the engine's
+`warmDecision`:
+
+```nix
+trace = {
+  mode     = "warm" | "cold";        # cold = the fallback fired (reason stated)
+  reason   = <string|null>;          # why cold (non-modules edit / a disabledModules refusal)
+  reused   = [ <loc-string> … ];     # declared leaves spliced from the previous result
+  remerged = { <loc-string> = <reason>; };   # "edited-def" | "dirty-def <f>" | "dirty-decl <f>" | "freeform-dirty <f>"
+  modules  = { clean = [ … ]; dirty = [ … ]; edited = [ … ]; };  # the source classification
+};
+```
+
+**Laziness cost:** `mode`/`modules` are cheap (classification only); `reused`/`remerged` are
+`O(declared-locs)` spine-forcing when read — they enumerate the loc partition, never leaf values.
+
+Exercised by `ci/tests/compose.nix` (values/aspects/hosts + the provenance cold-parity tooth, the
+warm/chained-warm byte teeth, the trace shape + cold-fallback tests, and the `selectHosts`
+nested-registry fixture) against the fixture tree under `ci/tests/_fixtures/tree/`.
 
 ## `lib.realize` + terminals
 

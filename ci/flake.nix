@@ -9,7 +9,7 @@
     gen-prelude.url = "github:sini/gen-prelude/62c2500";
     gen-types.url = "github:sini/gen-types/887ad87";
 
-    gen-merge.url = "github:sini/gen-merge/2ceedbf";
+    gen-merge.url = "github:sini/gen-merge/fdbf140";
     gen-merge.inputs.gen-prelude.follows = "gen-prelude";
     gen-merge.inputs.gen-types.follows = "gen-types";
 
