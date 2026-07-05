@@ -2,9 +2,9 @@
 #
 # Two halves:
 #   * PURE core (`compose`, `injectArgs`) — nixpkgs-lib-free; drives gen-merge's byte-mode
-#     `evalModuleTree`, never `lib.evalModules`. `compose` resolves a gen module tree to VALUES +
-#     per-host class content; `injectArgs` packages those VALUES as a query module. gen TYPES never
-#     leave this pure eval.
+#     `evalModuleTree`, never `lib.evalModules`. `compose` resolves a gen module tree to VALUES + the
+#     flat aspect registry + a per-host build projection; `injectArgs` packages those VALUES as a
+#     query module. gen TYPES never leave this pure eval.
 #   * TERMINAL (`mkSystems`) — the ONE sanctioned nixpkgs boundary, isolated in ./systems.nix, where
 #     `nixpkgs.lib.nixosSystem` legitimately enters. Only resolved VALUES + unforced class
 #     deferredModules cross into it.

@@ -11,9 +11,9 @@
 #   * QUERY   — the resolved gen VALUES injected as consumer module args under `config.gen.inject`
 #               names (default `genValues`), into BOTH the top-level flake module args AND every
 #               `perSystem` arg, so any consumer module reads `{ genValues, ... }: … genValues.hosts.<h>.addr …`.
-#   * SYSTEMS — `flake.nixosConfigurations = mkSystems { … }`, built per host from compose's
-#               `hostContent` projection (each host's `nixos` class deferredModules, with the
-#               resolved instance partial-applied as the `host` binding by gen-bind's `wrapAll`).
+#   * SYSTEMS — `flake.nixosConfigurations = mkSystems { … }`, built per host from compose's `hosts`
+#               projection (each host's `nixos` class deferredModules, with the resolved instance
+#               partial-applied as the `host` binding by gen-bind's `wrapAll`).
 #
 # This file is the FLAKE-PARTS / TERMINAL side of gen-flake. Unlike the pure core
 # (lib/compose.nix, lib/inject.nix) it legitimately uses nixpkgs `lib` (mkOption/types — supplied by
@@ -119,7 +119,7 @@ in
       internal = true;
       default = composed;
       defaultText = lib.literalExpression "compose { inherit (config.gen) tree modules specialArgs; }";
-      description = "The single `compose` result (`values` / `classContent` / `hostContent`). Internal read handle.";
+      description = "The single `compose` result (`values` / `aspects` / `hosts`). Internal read handle.";
     };
   };
 
@@ -132,7 +132,7 @@ in
 
     # SYSTEMS — build per-host NixOS systems from compose's per-host projection.
     flake.nixosConfigurations = genFlake.mkSystems {
-      inherit (composed) hostContent;
+      hostContent = composed.hosts;
       nixpkgs = cfg.nixpkgs;
       extraModules = cfg.extraModules;
     };

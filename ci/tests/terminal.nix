@@ -22,7 +22,7 @@ let
   ];
 
   systems = genFlake.mkSystems {
-    inherit (composed) hostContent;
+    hostContent = composed.hosts;
     inherit nixpkgs;
     extraModules = {
       igloo = base;
@@ -89,8 +89,8 @@ in
 
   # The per-host projection shape compose now finalizes (the input mkSystems builds on).
   flake.tests.terminal-projection = {
-    test-hostcontent-keys = {
-      expr = builtins.attrNames composed.hostContent;
+    test-hosts-keys = {
+      expr = builtins.attrNames composed.hosts;
       expected = [
         "iceberg"
         "igloo"
@@ -98,17 +98,17 @@ in
     };
     # igloo's `web` membership projects the aspect's `nixos` class into a one-module list.
     test-igloo-nixos-class-count = {
-      expr = builtins.length composed.hostContent.igloo.classes.nixos;
+      expr = builtins.length composed.hosts.igloo.classes.nixos;
       expected = 1;
     };
     # The resolved instance is handed to the class module as the `host` binding.
     test-igloo-binding-is-resolved-instance = {
-      expr = composed.hostContent.igloo.bindings.host.addr;
+      expr = composed.hosts.igloo.bindings.host.addr;
       expected = "10.0.1.1";
     };
     # iceberg (no membership) projects to empty class content.
     test-iceberg-empty-classes = {
-      expr = composed.hostContent.iceberg.classes;
+      expr = composed.hosts.iceberg.classes;
       expected = { };
     };
   };

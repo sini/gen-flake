@@ -1,8 +1,9 @@
 # `compose` — the PURE composition entry point of gen-flake.
 #
 # Loads a gen module tree and resolves it PURELY via gen-merge's byte-mode `evalModuleTree` (the
-# nixpkgs-free `lib.evalModules` replacement), then projects the result to the two things a consumer
-# eval needs: resolved VALUES + per-class deferredModule content. No nixpkgs is touched here.
+# nixpkgs-free `lib.evalModules` replacement), then projects the result to the three things a
+# consumer eval needs: resolved VALUES + the flat aspect registry + a per-host build projection. No
+# nixpkgs is touched here.
 #
 #   importTree : the import-tree fork's callable object. `(importTree.addPath dir).files` returns a
 #                BARE PATH LIST; gen-merge imports each path leaf (path-leaf import, #20), so a tree
@@ -10,7 +11,8 @@
 #   genMerge   : the merge engine — `evalModuleTree { modules; specialArgs; }`.
 #   genSchema  : threaded into the tree so definition modules declare `config.schema.<kind>` and
 #                materialize instances purely.
-#   genAspects : threaded into the tree; `flatten` projects the resolved aspect tree to class content.
+#   genAspects : threaded into the tree; `flatten` projects the resolved aspect tree to the flat
+#                aspect registry.
 #   genTypes / genPrelude : threaded for completeness (definition modules may reach for them).
 {
   importTree,
@@ -61,29 +63,31 @@ let
       )
     );
 
-  # `projectHosts` — the (class, host) reshape T5 deferred. Projects the FLAT aspect registry to
-  # per-host class content: for each host instance, gather the deferredModules of each class across
-  # the aspects the host declares membership in (`host.aspects`). Yields
+  # `projectHosts` — the host-keyed reshape of the FLAT aspect registry. For each host instance,
+  # gather the deferredModules of each class across the aspects the host declares membership in
+  # (`host.aspects`). `selectHosts` names WHICH resolved attrset holds the host instances — a nested
+  # registry layout (`fleet.hosts`) would otherwise project empty under a hardcoded `values.hosts`
+  # read. Yields
   #   { <host> = { bindings = { host = <resolved instance>; }; classes = { <class> = [ <deferredModule> ]; }; }; }
   # `bindings` are the resolved VALUES a class module is partial-applied with at the terminal (via
   # gen-bind's `wrapAll`); `classes.<c>` is the ordered deferredModule list fed to that class's system.
   # PURE — no nixpkgs; the deferredModules stay unforced (opaque) until the terminal imports them.
   projectHosts =
-    values: classContent:
+    selectHosts: values: aspects:
     let
-      hosts = values.hosts or { };
+      hosts = selectHosts values;
     in
     builtins.mapAttrs (
       _hostName: inst:
       let
-        memberAspects = builtins.filter (a: classContent ? ${a}) (inst.aspects or [ ]);
-        classNames = dedup (builtins.concatMap (a: classFieldsOf classContent.${a}) memberAspects);
+        memberAspects = builtins.filter (a: aspects ? ${a}) (inst.aspects or [ ]);
+        classNames = dedup (builtins.concatMap (a: classFieldsOf aspects.${a}) memberAspects);
         collectClass =
           class:
           builtins.concatMap (
             a:
             let
-              entry = classContent.${a};
+              entry = aspects.${a};
             in
             if builtins.elem class (classFieldsOf entry) then [ entry.${class} ] else [ ]
           ) memberAspects;
@@ -110,6 +114,13 @@ in
       modules ? [ ],
       # Extra module args, merged over the threaded gen libs.
       specialArgs ? { },
+      # Threaded VERBATIM into gen-merge's `evalModuleTree` (e.g. `check = false` to disable the
+      # unknown-key orphan check, `prefix` to nest). `modules`/`specialArgs` are OWNED by compose —
+      # carrying either here THROWS (an explicit collision beats a silent override).
+      engineArgs ? { },
+      # `values → { <host> = instance; }` — names which resolved attrset holds the host instances.
+      # Defaults to the flat `values.hosts`; a nested registry passes `selectHosts = v: v.fleet.hosts`.
+      selectHosts ? (values: values.hosts or { }),
     }:
     let
       # `(importTree.addPath dir).files` is the fork's bare-path-list accessor (NOT `importTree dir`,
@@ -117,34 +128,51 @@ in
       # `_fixtures`-style subtree is auto-excluded from a sibling test load but still loadable here.
       treeModules = if tree == null then [ ] else (importTree.addPath tree).files;
 
-      result = genMerge.evalModuleTree {
-        modules = treeModules ++ modules;
-        specialArgs = genLibs // specialArgs;
-      };
+      # `modules`/`specialArgs` are compose's to set; an engineArgs key colliding with them would be
+      # silently overridden by the `//` below, so name the offender(s) and throw instead.
+      engineArgsCollisions = builtins.filter (k: engineArgs ? ${k}) [
+        "modules"
+        "specialArgs"
+      ];
+      _engineArgsCheck =
+        if engineArgsCollisions != [ ] then
+          throw "compose: engineArgs must not carry ${builtins.concatStringsSep ", " engineArgsCollisions} — compose owns these engine keys"
+        else
+          null;
+
+      result = builtins.seq _engineArgsCheck (
+        genMerge.evalModuleTree (
+          engineArgs
+          // {
+            modules = treeModules ++ modules;
+            specialArgs = genLibs // specialArgs;
+          }
+        )
+      );
 
       cfg = result.config;
 
       # The flat aspect registry (keyed by aspect path). Absent an `aspects` surface, empty.
-      classContent = if cfg ? aspects then genAspects.flatten cfg.aspects else { };
+      aspects = if cfg ? aspects then genAspects.flatten cfg.aspects else { };
     in
     {
       # Resolved config VALUES — a thin read of the fixpoint config: instances, id_hash, resolved
-      # refs, flattened surfaces. This is what a consumer eval injects into nixpkgs (T6/T7). gen TYPES
-      # stay behind in this pure eval; only these values cross the boundary.
+      # refs, flattened surfaces. This is what a consumer eval injects into nixpkgs. gen TYPES stay
+      # behind in this pure eval; only these values cross the boundary.
       values = cfg;
 
-      # Per-class deferredModule content: the flat aspect registry (keyed by aspect path), where each
-      # entry carries its per-class deferredModule fields (e.g. `.nixos`). The deferredModules are
-      # inspectable but unforced, so class bodies cross into nixpkgs unevaluated. This stays the flat
-      # QUERY surface (gen-graph/gen-select queries over aspects); the per-host build shape is
-      # `hostContent` below. Absent an `aspects` surface, this is empty.
-      inherit classContent;
+      # The FLAT aspect registry (keyed by aspect path): each entry carries its per-class
+      # deferredModule fields (e.g. `.nixos`). The deferredModules are inspectable but unforced, so
+      # class bodies cross into nixpkgs unevaluated. This is the flat QUERY surface (gen-graph /
+      # gen-select queries over aspects); the per-host build shape is `hosts` below. Absent an
+      # `aspects` surface, this is empty.
+      inherit aspects;
 
-      # The (class, host) reshape T5 deferred, finalized here (T6). Host-keyed projection of the flat
-      # registry — `{ <host> = { bindings; classes = { <class> = [ deferredModule ]; }; }; }` — driven
-      # by each host's `aspects` membership. This is what the terminal (`mkSystems`) builds: per host,
-      # `wrapAll` partial-applies `bindings` into `classes.<class>` and hands the result to a system.
-      # PURE — the deferredModules remain unforced until the terminal's nixpkgs eval imports them.
-      hostContent = projectHosts cfg classContent;
+      # The per-host build projection — a host-keyed reshape of the flat registry,
+      # `{ <host> = { bindings; classes = { <class> = [ deferredModule ]; }; }; }`, driven by each
+      # host's `aspects` membership. This is what the terminal builds: per host, `wrapAll`
+      # partial-applies `bindings` into `classes.<class>` and hands the result to a system. PURE —
+      # the deferredModules remain unforced until the terminal's nixpkgs eval imports them.
+      hosts = projectHosts selectHosts cfg aspects;
     };
 }
