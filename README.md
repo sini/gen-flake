@@ -175,7 +175,7 @@ the retro-fix for terminals that could not bind more than `{ host }`.
   it). Per host it `genBind.wrapAll`s the class `deferredModule`s with the merged `bindings`, then
   `nixpkgs.lib.nixosSystem { modules = wrapped.all ++ extraModules; specialArgs = { nodes; } // (osConfig?); }`.
   A build with neither a threaded nor a per-terminal nixpkgs throws.
-- A **data terminal** is any pure `terminalArgs -> artifact` builder (no nixpkgs) — e.g.
+- A **data terminal** is any pure `terminalArgs -> artifact` builder (no nixpkgs package set / no nixosSystem) — e.g.
   `genBind.wrapAll` + a bare `lib.evalModules` over stub options. Used by the tests and the gen-aspects
   demo to assert resolved values without a full NixOS eval.
 
