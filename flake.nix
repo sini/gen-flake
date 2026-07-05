@@ -1,15 +1,16 @@
 {
   description = "gen-flake — the pure composition boundary of the pure-gen module ecosystem";
 
-  # gen-flake is the SINGLE boundary of the pure-gen module stack. `.lib.compose` (this task, T5) is
-  # the PURE half: it loads a gen module tree and resolves it via gen-merge's byte-mode
-  # `evalModuleTree` — with ZERO nixpkgs — returning resolved VALUES + per-class deferredModules.
-  # The consumer-eval half (inject those values into a real nixpkgs eval + build NixOS systems at a
-  # terminal) is T6/T7 and lives OUTSIDE this library; that is where nixpkgs/flake-parts enter.
+  # gen-flake is the SINGLE boundary of the pure-gen module stack. `.lib.compose` is the PURE half: it
+  # loads a gen module tree and resolves it via gen-merge's byte-mode `evalModuleTree` — with ZERO
+  # nixpkgs — returning resolved VALUES + the flat aspect registry + a per-host projection + the
+  # provenance channel. The consumer-eval half (inject those values into a real nixpkgs eval + realize
+  # NixOS systems at a terminal) lives in this flake's flakeModule / terminal, where nixpkgs and
+  # flake-parts enter.
   #
   # Invariant: gen TYPES never leave the pure eval; only VALUES cross into a consumer's nixpkgs.
-  # The library (./lib) is nixpkgs-lib-free — enforced by ci/tests/purity.nix. Consequently these
-  # inputs are the published PURE stack only; no nixpkgs/flake-parts here (they belong to T6).
+  # The library (./lib) is nixpkgs-lib-free — enforced by ci/tests/purity.nix. The gen inputs below are
+  # the published PURE stack; nixpkgs/flake-parts enter only as the terminal/host deps further down.
   #
   # follows wire ONE instance of each lower lib through the whole stack, so the constructors the tree
   # sees (gen-merge/gen-schema/gen-aspects) share identity — the merge protocol is duck-typed, but a
@@ -37,7 +38,7 @@
     # directly (gen-merge #20 path-leaf import). Pure builtins, no lib.
     import-tree.url = "github:denful/import-tree/a164a12202f58eb67559bd33b5592f20660d9baf";
 
-    # The terminal deps (T6). gen-bind supplies `wrapAll` (DI of resolved bindings into class module
+    # The terminal deps. gen-bind supplies `wrapAll` (DI of resolved bindings into class module
     # functions); nixpkgs supplies `.lib.nixosSystem` + the NixOS module set. These enter ONLY the
     # terminal (./lib/terminals.nix) — the PURE core (compose/inject/realize) never sees them. Their
     # inclusion here is the sanctioned nixpkgs boundary; the library core stays nixpkgs-lib-free.
@@ -46,7 +47,7 @@
 
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
 
-    # flake-parts — the host that `flakeModules.default` (this task's `.flakeModule`) targets. The
+    # flake-parts — the host that `flakeModules.default` (the exported `.flakeModule`) targets. The
     # exported module is a plain flake-parts module: a CONSUMER supplies their own flake-parts eval,
     # so gen-flake never CALLS flake-parts here. Pinned as the reference/compatible host (and the one
     # ci/ evaluates the fixture consumer against).

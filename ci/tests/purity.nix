@@ -13,7 +13,7 @@
 #             still never CALL a module-system function (`lib.evalModules`/`lib.types`/…).
 #   * EXCLUDED (lib/terminals.nix, ./flakeModule.nix): the sanctioned nixpkgs / flake-parts boundary.
 #             `lib/terminals.nix` is where `nixpkgs.lib.nixosSystem` enters. `./flakeModule.nix` is the
-#             flake-parts ergonomics host (T7): it declares options with nixpkgs `lib.mkOption`/
+#             flake-parts ergonomics host: it declares options with nixpkgs `lib.mkOption`/
 #             `lib.types` (supplied by the CONSUMER's flake-parts eval) and closes over the `terminals`
 #             boundary, so it is classified terminal-side exactly like terminals.nix. It lives at the
 #             repo ROOT (not ./lib) and is intentionally absent from both the ./lib walk and

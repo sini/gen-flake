@@ -30,7 +30,7 @@ in
   #      user/home content), it is threaded into `specialArgs` too.
   #
   # `nixpkgs` is optional at construction (threaded default) and per terminal; forcing a built system
-  # with neither throws — a nixos build REQUIRES nixpkgs, at the same altitude mkSystems required it.
+  # with neither throws — a nixos build REQUIRES nixpkgs, at the same altitude the build itself does.
   nixosSystem =
     {
       nixpkgs ? defaultNixpkgs,

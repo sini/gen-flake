@@ -5,7 +5,7 @@
 # needing the schema option (so this composes beside schema.nix with no `options.schema` collision).
 #
 # The `nixos` value is a deferredModule — inspectable (its `.imports` list) but NEVER forced by
-# composition, so the class body crosses into the consumer's nixpkgs eval unevaluated (T6 terminal).
+# composition, so the class body crosses into the consumer's nixpkgs eval unevaluated (at the terminal).
 # Here it is a FUNCTION module so the terminal can exercise the two injection styles:
 #   * `host`  — a resolved-VALUE binding partial-applied by gen-bind's `wrapAll` at wrap time; and
 #   * `nodes` — the cross-terminal accessor supplied by the system's `specialArgs` (colmena-style),
