@@ -118,9 +118,11 @@ flake-parts flake and gets, from **one** `compose`, both the query surface and t
 
   gen.tree = ./gen-modules;                         # a directory of gen definition modules
   gen.extraModules.myhost = [ ./hardware.nix ];     # per-host platform/base NixOS modules
+  # gen.terminals.<class> = <terminal>;             # extra class terminals (a `nixos` one defaults in)
+  # gen.injectPerSystem = true;                     # ALSO inject the values into perSystem args
 
-  # QUERY — the resolved gen VALUES are injected as `genValues` (default name) into every flake and
-  # perSystem module, so any consumer module reads them with no manual inject:
+  # QUERY — the resolved gen VALUES are injected as `genValues` (default name) into the top-level flake
+  # args (and, when `injectPerSystem` is set, perSystem args too), read with no manual inject:
   flake.myOutput = { addr = config.gen.composed.values.hosts.myhost.addr; };
   # or, in a module body: { genValues, ... }: { … genValues.hosts.myhost.addr … }
 }
@@ -130,10 +132,13 @@ From that one import the module:
 
 - runs `compose { inherit (config.gen) tree modules specialArgs; }` **once**;
 - injects the resolved values under `config.gen.inject` names (default `{ genValues = <values>; }`,
-  derived by reusing `injectArgs`) into **both** the top-level flake args and every `perSystem` arg;
-- sets `flake.nixosConfigurations = (realize { composed; terminals.nixos = terminals.nixosSystem { nixpkgs = config.gen.nixpkgs; }; extraModules; }).nixos`
-  — the `nixos` class realized per host from compose's `hosts` projection (class-major: a host with
-  no `nixos` content is not built).
+  derived by reusing `injectArgs`) into the top-level flake args, and — when `injectPerSystem` is set
+  — every `perSystem` arg. Opt-in perSystem injection keeps a consumer that never declares `systems`
+  evaluable (flake-parts only forces a `systems` declaration once a `perSystem` definition exists);
+- sets `flake.nixosConfigurations = (realize { composed; terminals; extraModules; }).nixos or { }` —
+  the `nixos` class realized per host from compose's `hosts` projection (class-major: a host with no
+  `nixos` content is not built). `terminals` is `gen.terminals` with a default `nixos` terminal from
+  `gen.nixpkgs`; read other classes off `gen.realized.<class>`.
 
 `options.gen`:
 
@@ -143,9 +148,12 @@ From that one import the module:
 | `modules` | `listOf raw` | `[ ]` | extra inline gen modules (fed to gen-merge, **not** nixpkgs) |
 | `specialArgs` | `attrsOf raw` | `{ }` | extra args merged over the gen libs during compose |
 | `inject` | `attrsOf raw` | `{ genValues = <values>; }` | resolved values to inject, keyed by arg name |
-| `nixpkgs` | `nullOr raw` | `inputs.nixpkgs` | nixpkgs used to **build** the systems |
+| `injectPerSystem` | `bool` | `false` | also inject `inject` into perSystem args (opt-in) |
+| `nixpkgs` | `nullOr raw` | `inputs.nixpkgs` | nixpkgs used to **build** the systems (default `nixos` terminal) |
+| `terminals` | `attrsOf raw` | `{ }` | class-keyed terminal registry (a `nixos` one defaults in from `nixpkgs`) |
 | `extraModules` | `attrsOf (listOf deferredModule)` | `{ }` | per-host extra NixOS modules |
 | `composed` | `raw` (read-only) | the compose result | `values` / `aspects` / `hosts` handle |
+| `realized` | `raw` (read-only) | the realize result | class-major `{ <class>.<host> = artifact; }` handle |
 
 ### Invariant
 

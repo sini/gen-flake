@@ -6,15 +6,26 @@
 #     imports = [ gen-flake.flakeModules.default ];
 #     gen.tree = ./gen-modules;                       # a directory of gen definition modules
 #     gen.extraModules.<host> = [ ./hardware.nix ];   # per-host platform/base modules
+#     gen.terminals.<class> = <terminal>;             # extra class terminals (a `nixos` one defaults
+#                                                     #   in from `gen.nixpkgs`); map others off
+#                                                     #   `gen.realized.<class>`
+#     gen.injectPerSystem = true;                     # ALSO inject the values into perSystem args
 #
 # and gets, from ONE `compose`:
 #   * QUERY   — the resolved gen VALUES injected as consumer module args under `config.gen.inject`
-#               names (default `genValues`), into BOTH the top-level flake module args AND every
-#               `perSystem` arg, so any consumer module reads `{ genValues, ... }: … genValues.hosts.<h>.addr …`.
-#   * SYSTEMS — `flake.nixosConfigurations = (realize { … }).nixos`, the `nixos` class realized per
-#               host from compose's `hosts` projection (each host's `nixos` class deferredModules,
-#               with the resolved instance partial-applied as the `host` binding by gen-bind's
-#               `wrapAll`). A host with no `nixos` content is not built (class-major).
+#               names (default `genValues`) into the top-level flake module args, so any consumer
+#               module reads `{ genValues, ... }: … genValues.hosts.<h>.addr …`. The same values are
+#               ALSO injected into every `perSystem` arg IFF `gen.injectPerSystem` is set (opt-in, so a
+#               consumer that never declares `systems` still evaluates — flake-parts only needs
+#               `systems` once a `perSystem` definition exists).
+#   * SYSTEMS — `flake.nixosConfigurations = (realize { terminals; … }).nixos or { }`, the `nixos`
+#               class realized per host from compose's `hosts` projection (each host's `nixos` class
+#               deferredModules, with the resolved instance partial-applied as the `host` binding by
+#               gen-bind's `wrapAll`). A host with no `nixos` content is not built (class-major); a
+#               registry with no `nixos` class at all yields the empty `or { }`.
+#   * TERMINALS — `gen.terminals` is the class-keyed registry `realize` consumes; `gen.realized` is the
+#               full class-major result (`{ <class>.<host> = artifact; }`), so a consumer wires
+#               non-nixos classes into their own flake outputs off `gen.realized.<class>`.
 #
 # This file is the FLAKE-PARTS / TERMINAL side of gen-flake. Unlike the pure core
 # (lib/compose.nix, lib/inject.nix, lib/realize.nix) it legitimately uses nixpkgs `lib`
@@ -42,6 +53,24 @@ let
     tree = cfg.tree;
     modules = cfg.modules;
     specialArgs = cfg.specialArgs;
+  };
+
+  # The effective terminal registry `realize` consumes: the consumer's `gen.terminals`, plus a default
+  # `nixos` terminal wired to `gen.nixpkgs` UNLESS `gen.nixpkgs` is null or the consumer already
+  # supplied their own `nixos` terminal (in which case theirs wins). A consumer replacing terminals
+  # entirely (custom classes, `gen.nixpkgs = null`) gets exactly their registry — no default nixos.
+  terminals =
+    cfg.terminals
+    // lib.optionalAttrs (cfg.nixpkgs != null && !(cfg.terminals ? nixos)) {
+      nixos = genFlake.terminals.nixosSystem { nixpkgs = cfg.nixpkgs; };
+    };
+
+  # The class-major realize result (`{ <class>.<host> = artifact; }`). Reads only `composed`, the
+  # terminals above, and per-host extras — never the injected/built config below, so no cycle. Shared
+  # by the `gen.realized` handle and `flake.nixosConfigurations`.
+  realized = genFlake.realize {
+    inherit composed terminals;
+    extraModules = cfg.extraModules;
   };
 in
 {
@@ -74,14 +103,15 @@ in
       type = types.attrsOf types.raw;
       # The default REUSES `injectArgs` (the pure query surface): its `_module.args` attrset is
       # exactly `{ genValues = composed.values; }`. The flakeModule then spreads that same attrset
-      # across both the top-level and perSystem arg scopes below.
+      # across the top-level (always) and perSystem (opt-in) arg scopes below.
       default = (genFlake.injectArgs composed)._module.args;
       defaultText = lib.literalExpression "{ genValues = <the resolved gen config values>; }";
       description = ''
         The resolved gen VALUES to inject as consumer module args, keyed by arg NAME. Defaults to
         `{ genValues = <the resolved config values>; }`; a consumer may rename the arg or add
-        further derived values. The set is injected into BOTH the top-level flake module args and
-        every `perSystem` arg, so consumer modules read them as `{ genValues, ... }: …`.
+        further derived values. The set is injected into the top-level flake module args, and — when
+        `injectPerSystem` is set — every `perSystem` arg, so consumer modules read them as
+        `{ genValues, ... }: …`.
 
         INVARIANT — do NOT project `schema` out of the injected values. `composed.values` includes
         the schema sub-tree, whose `values.schema.<kind>.options.*.type` are inert gen TYPE objects.
@@ -94,13 +124,40 @@ in
       '';
     };
 
+    injectPerSystem = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Whether to ALSO inject the resolved values (`inject`) into every `perSystem` arg, not just the
+        top-level flake args. Default `false`: the module emits NO `perSystem` definition, so a
+        consumer flake that never declares `systems` still evaluates (flake-parts only forces a
+        `systems` declaration once a `perSystem` definition exists). Set `true` when a `perSystem`
+        module needs to read `genValues`.
+      '';
+    };
+
     nixpkgs = mkOption {
       type = types.nullOr types.raw;
       default = inputs.nixpkgs or null;
       defaultText = lib.literalExpression "inputs.nixpkgs or null";
       description = ''
-        The nixpkgs used to BUILD the per-host NixOS systems (the `nixos` terminal). Defaults to the
-        consumer's own `inputs.nixpkgs`, so systems pin to the consumer's nixpkgs, not gen-flake's.
+        The nixpkgs used to BUILD the per-host NixOS systems (the default `nixos` terminal). Defaults
+        to the consumer's own `inputs.nixpkgs`, so systems pin to the consumer's nixpkgs, not
+        gen-flake's. `null` (or a consumer-supplied `terminals.nixos`) suppresses the default `nixos`
+        terminal.
+      '';
+    };
+
+    terminals = mkOption {
+      # `raw`: each value is a terminal FUNCTION (the realize contract), fed to the pure fold — not a
+      # nixpkgs module. A default `nixos` terminal is merged in from `nixpkgs` below unless overridden.
+      type = types.attrsOf types.raw;
+      default = { };
+      description = ''
+        The class-keyed terminal registry `realize` consumes: `{ <class> = <terminal>; }`. A default
+        `nixos` terminal (`terminals.nixosSystem { nixpkgs = config.gen.nixpkgs; }`) is added unless
+        `gen.nixpkgs` is null or this set already carries a `nixos` terminal. Read the realized
+        artifacts back off `gen.realized.<class>` to wire non-nixos classes into flake outputs.
       '';
     };
 
@@ -123,22 +180,31 @@ in
       defaultText = lib.literalExpression "compose { inherit (config.gen) tree modules specialArgs; }";
       description = "The single `compose` result (`values` / `aspects` / `hosts`). Internal read handle.";
     };
+
+    realized = mkOption {
+      type = types.raw;
+      readOnly = true;
+      internal = true;
+      default = realized;
+      defaultText = lib.literalExpression "realize { inherit composed terminals; extraModules = config.gen.extraModules; }";
+      description = ''
+        The full class-major realize result (`{ <class>.<host> = artifact; }`) over `gen.terminals`.
+        `flake.nixosConfigurations` is `realized.nixos or { }`; a consumer maps any other class off
+        `realized.<class>`. Internal read handle.
+      '';
+    };
   };
 
   config = {
-    # QUERY — inject the resolved VALUES under the `inject` names, into BOTH arg scopes.
+    # QUERY — inject the resolved VALUES under the `inject` names into the top-level flake args
+    # (always), and into every `perSystem` arg IFF opted in (so a no-`systems` consumer evaluates).
     _module.args = cfg.inject;
-    perSystem = _: {
+    perSystem = lib.mkIf cfg.injectPerSystem (_: {
       _module.args = cfg.inject;
-    };
+    });
 
-    # SYSTEMS — realize the `nixos` class from compose's per-host projection (interim call-site
-    # migration; the v1 options redesign — a `gen.terminals` surface — is a later task).
-    flake.nixosConfigurations =
-      (genFlake.realize {
-        inherit composed;
-        terminals.nixos = genFlake.terminals.nixosSystem { nixpkgs = cfg.nixpkgs; };
-        extraModules = cfg.extraModules;
-      }).nixos;
+    # SYSTEMS — the `nixos` class of the realized registry. `or { }` because a consumer may replace
+    # terminals entirely without a `nixos` class (e.g. `gen.nixpkgs = null` + custom terminals).
+    flake.nixosConfigurations = realized.nixos or { };
   };
 }
