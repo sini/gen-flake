@@ -142,6 +142,19 @@ in
       expr = nestedDefault.hosts;
       expected = { };
     };
+    # A selector returning a non-attrset dies with a NAMED contract error (compose + selectHosts +
+    # the required shape), not an anonymous "expected a set" from mapAttrs. (tryEval idiom — Nix
+    # cannot introspect the message, so the guard is pinned by the throw itself.)
+    test-nonattrset-selecthosts-throws = {
+      expr =
+        (builtins.tryEval (
+          let
+            h = (genFlake.compose { selectHosts = _: 42; }).hosts;
+          in
+          builtins.deepSeq h h
+        )).success;
+      expected = false;
+    };
   };
 
   # `engineArgs` — threaded VERBATIM into gen-merge's `evalModuleTree`. `modules`/`specialArgs` are

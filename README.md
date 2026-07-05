@@ -68,7 +68,7 @@ set; `lib.compose` is also the entry point for consumers not on flake-parts.
 ```nix
 compose ::
   { tree ? <path>, modules ? [ ], specialArgs ? { } }
-  -> { values; classContent; hostContent; }
+  -> { values; aspects; hosts; }
 ```
 
 - `tree` — a directory of gen definition modules, loaded as a **bare path list** via the
@@ -85,17 +85,17 @@ surfaces purely — no nixpkgs `lib`.
 
 - `values` — a thin read of the resolved config (`result.config`): instances, `id_hash`, resolved
   refs, flattened surfaces. This is the injection payload — VALUES, not gen types.
-- `classContent` — `genAspects.flatten result.config.aspects`: the flat aspect registry (keyed by
+- `aspects` — `genAspects.flatten result.config.aspects`: the flat aspect registry (keyed by
   aspect path), where each entry carries its per-class deferredModule content (e.g. `.nixos`),
   inspectable but unforced. This is the flat **query** surface (gen-graph/gen-select queries over
   aspects).
-- `hostContent` — the per-host `(class, host)` projection driven by each host's `aspects` membership:
+- `hosts` — the per-host `(class, host)` projection driven by each host's `aspects` membership:
   `{ <host> = { bindings = { host = <resolved instance>; }; classes = { <class> = [ <deferredModule> ]; }; }; }`.
   This is the **build** surface `mkSystems` consumes; the deferredModules stay unforced until the
   terminal imports them.
 
-The projection is exercised by `ci/tests/compose.nix` (values/classContent/hostContent) and
-`ci/tests/terminal.nix` (the hostContent projection + `mkSystems`) against the fixture tree under
+The projection is exercised by `ci/tests/compose.nix` (values/aspects/hosts) and
+`ci/tests/terminal.nix` (the hosts projection + `mkSystems`) against the fixture tree under
 `ci/tests/_fixtures/tree/`.
 
 ## `flakeModules.default` — flake-parts ergonomics
@@ -122,7 +122,8 @@ From that one import the module:
 - runs `compose { inherit (config.gen) tree modules specialArgs; }` **once**;
 - injects the resolved values under `config.gen.inject` names (default `{ genValues = <values>; }`,
   derived by reusing `injectArgs`) into **both** the top-level flake args and every `perSystem` arg;
-- sets `flake.nixosConfigurations = mkSystems { hostContent; nixpkgs = config.gen.nixpkgs; extraModules; }`.
+- sets `flake.nixosConfigurations = mkSystems { hostContent; nixpkgs = config.gen.nixpkgs; extraModules; }`
+  — the `hostContent` param keeps its name, now fed by compose's `hosts` projection (`composed.hosts`).
 
 `options.gen`:
 
@@ -134,7 +135,7 @@ From that one import the module:
 | `inject` | `attrsOf raw` | `{ genValues = <values>; }` | resolved values to inject, keyed by arg name |
 | `nixpkgs` | `nullOr raw` | `inputs.nixpkgs` | nixpkgs used to **build** the systems |
 | `extraModules` | `attrsOf (listOf deferredModule)` | `{ }` | per-host extra NixOS modules |
-| `composed` | `raw` (read-only) | the compose result | `values` / `classContent` / `hostContent` handle |
+| `composed` | `raw` (read-only) | the compose result | `values` / `aspects` / `hosts` handle |
 
 ### Invariant
 
@@ -163,7 +164,7 @@ $ nix flake check ./ci
 ```
 
 The nix-unit suites exercise the projection and the terminal: `ci/tests/compose.nix`
-(`values`/`classContent`/`hostContent`), `ci/tests/terminal.nix` (the `hostContent` projection +
+(`values`/`aspects`/`hosts`), `ci/tests/terminal.nix` (the `hosts` projection +
 `mkSystems`), `ci/tests/flake-module.nix` (the end-to-end fixture consumer that proves the
 invariant), and `ci/tests/purity.nix` (the pure core is nixpkgs-lib-free).
 

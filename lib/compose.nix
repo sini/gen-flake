@@ -76,34 +76,43 @@ let
     selectHosts: values: aspects:
     let
       hosts = selectHosts values;
+      # `selectHosts` is caller-supplied; a non-attrset result would die inside `mapAttrs` as an
+      # anonymous "expected a set" — name compose, the arg, and the contract instead.
+      _hostsCheck =
+        if builtins.isAttrs hosts then
+          null
+        else
+          throw "compose: selectHosts must return an attrset of host instances ({ <host> = <instance>; }), got ${builtins.typeOf hosts}";
     in
-    builtins.mapAttrs (
-      _hostName: inst:
-      let
-        memberAspects = builtins.filter (a: aspects ? ${a}) (inst.aspects or [ ]);
-        classNames = dedup (builtins.concatMap (a: classFieldsOf aspects.${a}) memberAspects);
-        collectClass =
-          class:
-          builtins.concatMap (
-            a:
-            let
-              entry = aspects.${a};
-            in
-            if builtins.elem class (classFieldsOf entry) then [ entry.${class} ] else [ ]
-          ) memberAspects;
-      in
-      {
-        bindings = {
-          host = inst;
-        };
-        classes = builtins.listToAttrs (
-          map (c: {
-            name = c;
-            value = collectClass c;
-          }) classNames
-        );
-      }
-    ) hosts;
+    builtins.seq _hostsCheck (
+      builtins.mapAttrs (
+        _hostName: inst:
+        let
+          memberAspects = builtins.filter (a: aspects ? ${a}) (inst.aspects or [ ]);
+          classNames = dedup (builtins.concatMap (a: classFieldsOf aspects.${a}) memberAspects);
+          collectClass =
+            class:
+            builtins.concatMap (
+              a:
+              let
+                entry = aspects.${a};
+              in
+              if builtins.elem class (classFieldsOf entry) then [ entry.${class} ] else [ ]
+            ) memberAspects;
+        in
+        {
+          bindings = {
+            host = inst;
+          };
+          classes = builtins.listToAttrs (
+            map (c: {
+              name = c;
+              value = collectClass c;
+            }) classNames
+          );
+        }
+      ) hosts
+    );
 in
 {
   compose =
