@@ -16,19 +16,19 @@
   # sees (gen-merge/gen-schema/gen-aspects) share identity — the merge protocol is duck-typed, but a
   # single instance keeps the closure minimal and the type objects self-consistent.
   inputs = {
-    gen-prelude.url = "github:sini/gen-prelude/62c2500";
-    gen-types.url = "github:sini/gen-types/887ad87";
+    gen-prelude.url = "github:sini/gen-prelude";
+    gen-types.url = "github:sini/gen-types";
 
-    gen-merge.url = "github:sini/gen-merge/fdbf140";
+    gen-merge.url = "github:sini/gen-merge";
     gen-merge.inputs.gen-prelude.follows = "gen-prelude";
     gen-merge.inputs.gen-types.follows = "gen-types";
 
-    gen-schema.url = "github:sini/gen-schema/39d3d5d";
+    gen-schema.url = "github:sini/gen-schema";
     gen-schema.inputs.gen-prelude.follows = "gen-prelude";
     gen-schema.inputs.gen-types.follows = "gen-types";
     gen-schema.inputs.gen-merge.follows = "gen-merge";
 
-    gen-aspects.url = "github:sini/gen-aspects/64c3c25";
+    gen-aspects.url = "github:sini/gen-aspects";
     gen-aspects.inputs.gen-prelude.follows = "gen-prelude";
     gen-aspects.inputs.gen-merge.follows = "gen-merge";
     gen-aspects.inputs.gen-schema.follows = "gen-schema";
@@ -42,7 +42,7 @@
     # functions); nixpkgs supplies `.lib.nixosSystem` + the NixOS module set. These enter ONLY the
     # terminal (./lib/terminals.nix) — the PURE core (compose/inject/realize) never sees them. Their
     # inclusion here is the sanctioned nixpkgs boundary; the library core stays nixpkgs-lib-free.
-    gen-bind.url = "github:sini/gen-bind/f1d30cb";
+    gen-bind.url = "github:sini/gen-bind";
     gen-bind.inputs.gen-prelude.follows = "gen-prelude";
 
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
