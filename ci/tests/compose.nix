@@ -563,6 +563,9 @@ in
       expr = ovWarm.trace.remerged ? hosts;
       expected = true;
     };
+    # Bucket LENGTHS, not the file names: these inline modules carry no `_file`, so every entry renders
+    # `<gen-merge>` — the counts are the only grounded assertion here. Module IDENTITY (which loc came
+    # from clean vs dirty) is pinned instead by the reused/remerged teeth above, which key on loc-names.
     test-warm-trace-classification = {
       expr = builtins.mapAttrs (_: builtins.length) ovWarm.trace.modules;
       expected = {

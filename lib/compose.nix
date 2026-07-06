@@ -115,9 +115,9 @@ let
       ) hosts
     );
 
-  # `mergeComposeArgs` — the merge law of the cold `override` handle. `override edits` re-invokes
-  # `compose` with the ORIGINAL args merged with `edits` (an attrset of the SAME shape as compose
-  # args), per clause:
+  # `mergeComposeArgs` — the merge law of the `override` handle (feeds BOTH the warm and cold branches;
+  # `override edits` re-enters `composeAt` with the ORIGINAL args merged with `edits`, an attrset of the
+  # SAME shape as compose args), per clause:
   #   modules      APPENDED to the originals — new module defs join the existing ones (module-system
   #                natural). Retraction of an existing def is `mkForce` in an appended module, NOT
   #                list removal.
