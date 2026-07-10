@@ -14,9 +14,10 @@ one crossing between them:
   channel. `compose`, `injectArgs`, `realize`, and `diff` are all nixpkgs-lib-free (enforced by
   `ci/tests/purity.nix`).
 - **Realize (TERMINAL, nixpkgs).** `realize` folds the per-host projection through a per-class
-  **terminal** into class-major artifacts. The shipped `terminals.nixosSystem` is the ONE sanctioned
-  crossing where `nixpkgs.lib.nixosSystem` enters; only resolved values + unforced class
-  `deferredModule`s cross into it.
+  **terminal** into class-major artifacts. `terminals.mkSystemTerminal { evaluator }` is generic (no
+  system class, no nixpkgs); the shipped `terminals.nixosSystem` is compatibility sugar over it and the
+  ONE sanctioned crossing where `nixpkgs.lib.nixosSystem` enters. Only resolved values + unforced class
+  `deferredModule`s cross into a terminal.
 
 ```
 gen tree (definition modules)
@@ -204,17 +205,24 @@ the retro-fix for terminals that could not bind more than `{ host }`.
 
 **Terminals.**
 
-- `terminals.nixosSystem { nixpkgs ? <threaded default> }` — the shipped default `nixos` terminal and
-  the ONE sanctioned nixpkgs boundary (isolated in `lib/terminals.nix`; `ci/tests/purity.nix` excludes
-  it). Per host it `genBind.wrapAll`s the class `deferredModule`s with the merged `bindings`, then
-  `nixpkgs.lib.nixosSystem { modules = wrapped.all ++ extraModules; specialArgs = { nodes; } // (osConfig?); }`.
-  A build with neither a threaded nor a per-terminal nixpkgs throws.
+- `terminals.mkSystemTerminal { evaluator }` — the **generic** system terminal. It names no system
+  class and touches no nixpkgs / nix-darwin: per host it `genBind.wrapAll`s the class `deferredModule`s
+  with the merged `bindings`, then hands `{ modules = wrapped.all ++ extraModules; specialArgs = { nodes; } // (osConfig?); }` to `evaluator` — the consumer-supplied `{ modules, specialArgs } -> system` builder
+  (the `nixpkgs.lib.nixosSystem` / nix-darwin `lib.darwinSystem` **shape**). System knowledge lives on the
+  consumer's side, in the evaluator it passes.
+  - **Extension recipe.** A new target — darwin, a droid image, any `{ modules, specialArgs } -> artifact`
+    builder — is a new consumer-side evaluator. gen-flake never changes for a new system class.
+- `terminals.nixosSystem { nixpkgs ? <threaded default> }` — **compatibility sugar** (the published
+  v1.0.0 API): `mkSystemTerminal` instantiated with `nixpkgs.lib.nixosSystem`. This is the lib's ONE
+  remaining nixpkgs touch (`lib/terminals.nix`; `ci/tests/purity.nix` carves out exactly this call).
+  A build with neither a threaded nor a per-terminal nixpkgs throws (lazily, at build force).
 - A **data terminal** is any pure `terminalArgs -> artifact` builder (no nixpkgs package set / no nixosSystem) — e.g.
   `genBind.wrapAll` + a bare `lib.evalModules` over stub options. Used by the tests and the gen-aspects
   demo to assert resolved values without a full NixOS eval.
 
 Exercised by `ci/tests/terminal.nix` (the `hosts` projection, class-major output shape, bindings merge
-order, per-host bindings, the data terminal, and the `nixosSystem` terminal).
+order, per-host bindings, the data terminal, the generic `mkSystemTerminal` via a fake evaluator, and
+the `nixosSystem` sugar).
 
 ## `lib.diff`
 

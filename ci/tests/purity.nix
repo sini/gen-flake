@@ -1,8 +1,10 @@
 # Purity invariant, with a documented terminal carve-out.
 #
 # gen-flake is the SINGLE nixpkgs boundary of a pure-gen ecosystem. That boundary is DELIBERATELY
-# narrow — it lives in exactly one file (lib/terminals.nix, the terminal), and everything else stays
-# nixpkgs-lib-free. This test enforces the split three ways:
+# narrow — it is now exactly the `terminals.nixosSystem` compatibility SUGAR (the one `nixpkgs.lib.
+# nixosSystem` call), isolated in lib/terminals.nix; the generic `mkSystemTerminal` beside it is pure
+# (it takes a consumer-supplied evaluator — the terminal-generic fake-evaluator suite proves it), and
+# everything else stays nixpkgs-lib-free. This test enforces the split three ways:
 #
 #   * STRICT  (lib/compose.nix, lib/inject.nix, lib/realize.nix, + any future pure lib file): the PURE
 #             core. It drives gen-merge's byte-mode `evalModuleTree` (the `lib.evalModules` replacement)
@@ -12,7 +14,10 @@
 #             `genBind` as OPAQUE values into the terminal, so they may NAME `nixpkgs` — but they must
 #             still never CALL a module-system function (`lib.evalModules`/`lib.types`/…).
 #   * EXCLUDED (lib/terminals.nix, ./flakeModule.nix): the sanctioned nixpkgs / flake-parts boundary.
-#             `lib/terminals.nix` is where `nixpkgs.lib.nixosSystem` enters. `./flakeModule.nix` is the
+#             `lib/terminals.nix` holds the PURE generic `mkSystemTerminal` (no nixpkgs) PLUS the
+#             `nixosSystem` sugar — the actual nixpkgs touch is exactly the sugar's `nixpkgs.lib.
+#             nixosSystem` call. The file is excluded whole (a future consumer-facing terminal sugar
+#             lands here too). `./flakeModule.nix` is the
 #             flake-parts ergonomics host: it declares options with nixpkgs `lib.mkOption`/
 #             `lib.types` (supplied by the CONSUMER's flake-parts eval) and closes over the `terminals`
 #             boundary, so it is classified terminal-side exactly like terminals.nix. It lives at the

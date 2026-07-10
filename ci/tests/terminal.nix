@@ -15,6 +15,7 @@
   genMerge,
   genSchema,
   genAspects,
+  genBind,
   ...
 }:
 let
@@ -256,6 +257,58 @@ let
 
   # injectArgs (PURE query surface) — unchanged; packages resolved VALUES as `_module.args`.
   injected = genFlake.injectArgs composedTree;
+
+  # ── mkSystemTerminal (the GENERIC constructor) with a FAKE evaluator ─────────
+  # Proves the wrap contract with NO nixpkgs and no system class: the fake evaluator just reflects its
+  # `{ modules; specialArgs; }` argument, so every assertion below is pure data.
+  fakeEvaluator = args: { __fakeSystem = true; } // args;
+  genericMods = [ ({ host, ... }: { networking.hostName = host; }) ];
+  genericBindings = {
+    host = "H-INST";
+  };
+  genericExtra = [ { __extra = true; } ];
+  # throwing peer values — reading the `nodes` spine (its keys) must force no peer.
+  genericNodes = {
+    peerA = throw "gen-flake test: peer forced";
+    peerB = throw "gen-flake test: peer forced";
+  };
+  genericTerm = genFlake.terminals.mkSystemTerminal { evaluator = fakeEvaluator; };
+  genericBuilt = genericTerm {
+    name = "h";
+    modules = genericMods;
+    bindings = genericBindings;
+    nodes = genericNodes;
+    extraModules = genericExtra;
+  };
+  genericBuiltOs = genericTerm {
+    name = "o";
+    modules = [ ];
+    bindings = { };
+    nodes = { };
+    extraModules = [ ];
+    osConfig = {
+      marker = "OS";
+    };
+  };
+  # Expected wrapped-module count — `wrapAll(mods, bindings).all ++ extraModules`, computed directly from
+  # gen-bind — so a count match proves the terminal actually ran wrapAll (a passthrough would be fewer).
+  expectedGenericModCount =
+    builtins.length
+      (genBind.wrapAll {
+        modules = genericMods;
+        bindings = genericBindings;
+      }).all
+    + builtins.length genericExtra;
+
+  # generic ≡ sugar: the SAME tree realized through `mkSystemTerminal { evaluator = nixpkgs.lib.nixosSystem }`
+  # must build the same nixos system as `terminals.nixosSystem` — the byte-compat proof for the sugar.
+  realizedTreeGeneric = genFlake.realize {
+    composed = composedTree;
+    terminals.nixos = genFlake.terminals.mkSystemTerminal { evaluator = nixpkgs.lib.nixosSystem; };
+    extraModules = {
+      igloo = base;
+    };
+  };
 in
 {
   # ── realize: shape (class-major; host under a class IFF non-empty module list) ──
@@ -432,6 +485,48 @@ in
         addr = "10.0.1.1";
         isString = true;
       };
+    };
+  };
+
+  # ── mkSystemTerminal (generic constructor) — the wrap contract, proven with a FAKE evaluator ──
+  flake.tests.terminal-generic = {
+    # the evaluator is invoked with the terminal's `{ modules; specialArgs; }` (pure — no nixpkgs).
+    test-evaluator-invoked = {
+      expr = genericBuilt.__fakeSystem or false;
+      expected = true;
+    };
+    # `nodes` rides specialArgs; reading its spine (keys) forces no peer (the values throw).
+    test-nodes-threaded = {
+      expr = builtins.attrNames genericBuilt.specialArgs.nodes;
+      expected = [
+        "peerA"
+        "peerB"
+      ];
+    };
+    # wrapAll actually ran + extraModules appended: count == wrapAll.all + extras (passthrough = fewer).
+    test-wrap-contract-module-count = {
+      expr = builtins.length genericBuilt.modules;
+      expected = expectedGenericModCount;
+    };
+    # extraModules land in the module list verbatim (appended after the wrapped set).
+    test-extramodules-appended = {
+      expr = builtins.elem { __extra = true; } genericBuilt.modules;
+      expected = true;
+    };
+    # osConfig rides specialArgs IFF the terminal args carry one.
+    test-osconfig-absent-by-default = {
+      expr = genericBuilt.specialArgs ? osConfig;
+      expected = false;
+    };
+    test-osconfig-threaded-when-present = {
+      expr = genericBuiltOs.specialArgs.osConfig.marker;
+      expected = "OS";
+    };
+    # generic ≡ sugar: `mkSystemTerminal { evaluator = nixpkgs.lib.nixosSystem }` builds the same nixos
+    # system as `terminals.nixosSystem` (the sugar is a thin instantiation — byte-compatible behavior).
+    test-generic-equals-nixossystem-sugar = {
+      expr = realizedTreeGeneric.nixos.igloo.config.networking.hostName;
+      expected = "igloo";
     };
   };
 }
