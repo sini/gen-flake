@@ -26,7 +26,7 @@
 #             these files only.
 #
 # Comments are stripped before scanning, so this note's own tokens do not trip it.
-{ lib, ... }:
+{ genPrelude, lib, ... }:
 let
   libDir = ../../lib;
 
@@ -94,7 +94,7 @@ let
     if cls == null then
       [ ]
     else
-      map (tok: "${toString p}: '${tok}'") (lib.filter (tok: lib.hasInfix tok (read p)) forbidden)
+      map (tok: "${toString p}: '${tok}'") (lib.filter (tok: genPrelude.hasInfix tok (read p)) forbidden)
   ) (walk libDir);
 
   # Root wiring files: NAME nixpkgs/gen-bind as inputs, but must not CALL a module-system function.
@@ -105,7 +105,7 @@ let
       (
         rel:
         map (tok: "${rel}: '${tok}'") (
-          lib.filter (tok: lib.hasInfix tok (read (../.. + "/${rel}"))) callTokens
+          lib.filter (tok: genPrelude.hasInfix tok (read (../.. + "/${rel}"))) callTokens
         )
       )
       [
