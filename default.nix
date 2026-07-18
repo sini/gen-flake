@@ -28,6 +28,9 @@
   # site (the sanctioned boundary). The standalone entry leaves it null so the pure/query paths need
   # no nixpkgs; a `terminals.nixosSystem` caller passes their own `nixpkgs`.
   nixpkgs ? null,
+  # flakeParts is the `terminals.mkFlakeTerminal` crossing (the flake-parts flake), the same posture as
+  # nixpkgs — left null in the standalone entry; a `mkFlakeTerminal` caller passes their own `flake-parts`.
+  flakeParts ? null,
 }:
 import ./lib {
   inherit
@@ -39,5 +42,6 @@ import ./lib {
     genPrelude
     genBind
     nixpkgs
+    flakeParts
     ;
 }

@@ -24,6 +24,9 @@
 #                `terminals.nixosSystem` call may override it). Opaque here — never `lib.evalModules`'d;
 #                the PURE core (compose/inject/realize) never receives it. Optional (default null) so
 #                the standalone / query paths need no nixpkgs; only a nixos build requires one.
+#   flakeParts : the flake-parts flake, threaded ONLY into ./terminals.nix as the `mkFlakeTerminal` crossing
+#                (its sanctioned host boundary, like nixpkgs). Opaque here — never called; the PURE core never
+#                receives it. Optional (default null); only a `mkFlakeTerminal` output build requires one.
 #
 # Purity is enforced by ci/tests/purity.nix: compose.nix + inject.nix + realize.nix + diff.nix are
 # strictly nixpkgs-free; the wiring (this file, the flakes) may NAME `nixpkgs`/`genBind` but never CALL
@@ -37,6 +40,7 @@
   genPrelude ? { },
   genBind,
   nixpkgs ? null,
+  flakeParts ? null,
 }:
 let
   composeLib = import ./compose.nix {
@@ -57,7 +61,7 @@ let
   diffLib = import ./diff.nix;
 
   terminalsLib = import ./terminals.nix {
-    inherit genBind nixpkgs;
+    inherit genBind nixpkgs flakeParts;
   };
 in
 {

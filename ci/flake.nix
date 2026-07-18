@@ -60,6 +60,7 @@
         genPrelude = gen-prelude.lib;
         genBind = gen-bind.lib;
         inherit nixpkgs;
+        flakeParts = flake-parts;
       };
     in
     gen.lib.mkCi {

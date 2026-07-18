@@ -216,13 +216,25 @@ the retro-fix for terminals that could not bind more than `{ host }`.
   v1.0.0 API): `mkSystemTerminal` instantiated with `nixpkgs.lib.nixosSystem`. This is the lib's ONE
   remaining nixpkgs touch (`lib/terminals.nix`; `ci/tests/purity.nix` carves out exactly this call).
   A build with neither a threaded nor a per-terminal nixpkgs throws (lazily, at build force).
+- `terminals.mkFlakeTerminal { inputs; self; modules; systems ? [ ] }` — the **flake-parts** crossing,
+  beside `mkSystemTerminal` (a pure addition; the system terminal is untouched). Where `mkSystemTerminal`
+  crosses a class's modules to one `{ modules, specialArgs } -> system` evaluator, this hosts a flake-parts
+  module set: it calls `flakeParts.lib.evalFlakeModule` as a **library** over `imports = modules` (with the
+  consumer's `inputs` and `self` — `self` injected into the eval's `inputs`, since flake-parts reads
+  `self.inputs`) and returns the transposed `config.flake` outputs (`perSystem` folded to per-system under
+  the given `systems`). `flakeParts` (the flake-parts flake) is a **construction** arg on `terminals` —
+  the same posture `nixpkgs` holds for `nixosSystem`, and, like it, one of the lib's sanctioned host
+  boundaries (`ci/tests/purity.nix` carves out `lib/terminals.nix`). It is optional at construction (a
+  standalone / pure consumer needs none); forcing an output with it null throws through a **named** guard,
+  lazily — constructing the terminal never forces it, only building an output does.
 - A **data terminal** is any pure `terminalArgs -> artifact` builder (no nixpkgs package set / no nixosSystem) — e.g.
   `genBind.wrapAll` + a bare `lib.evalModules` over stub options. Used by the tests and the gen-aspects
   demo to assert resolved values without a full NixOS eval.
 
 Exercised by `ci/tests/terminal.nix` (the `hosts` projection, class-major output shape, bindings merge
 order, per-host bindings, the data terminal, the generic `mkSystemTerminal` via a fake evaluator, and
-the `nixosSystem` sugar).
+the `nixosSystem` sugar); `ci/tests/flake-terminal.nix` covers `mkFlakeTerminal` (a fixture flake output
+surfaces through the terminal, and a `perSystem` package transposes to `packages.<system>`).
 
 ## `lib.diff`
 

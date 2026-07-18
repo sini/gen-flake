@@ -64,6 +64,7 @@
       import-tree,
       gen-bind,
       nixpkgs,
+      flake-parts,
       ...
     }:
     let
@@ -78,6 +79,7 @@
         # Terminal deps — threaded straight into ./lib/terminals.nix; the pure core never receives them.
         genBind = gen-bind.lib;
         inherit nixpkgs;
+        flakeParts = flake-parts;
       };
     in
     {

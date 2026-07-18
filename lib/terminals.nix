@@ -21,6 +21,7 @@
 {
   genBind,
   nixpkgs ? null,
+  flakeParts ? null,
 }:
 let
   defaultNixpkgs = nixpkgs;
@@ -61,6 +62,44 @@ let
 in
 {
   inherit mkSystemTerminal;
+
+  # mkFlakeTerminal — the FLAKE-PARTS crossing, BESIDE `mkSystemTerminal` (a PURE ADDITION; the system
+  # terminal is untouched). Where `mkSystemTerminal` crosses a class's modules to a single `{ modules;
+  # specialArgs } -> system`, this crosses a flake-parts MODULE SET to the transposed flake outputs: it calls
+  # `flake-parts.lib.evalFlakeModule` as a LIBRARY over `modules` with the consumer's `inputs` + `self`, and
+  # returns `config.flake` (perSystem folded to per-system). flake-parts is the crossing here, threaded at
+  # construction — the same posture `nixpkgs` holds for `nixosSystem` (and, like it, one of gen-flake's
+  # sanctioned host boundaries, carved out by ci/tests/purity.nix). flake-parts reads `self.inputs`, so the
+  # caller supplies a `self` carrying `.inputs`; `self` is injected into the eval's `inputs`. `flakeParts`
+  # is optional at construction (a standalone/pure consumer needs none); forcing an output with it null throws
+  # (LAZY — constructing the terminal never forces it, only building an output does), at the same altitude the
+  # flake-parts eval itself requires the host. This is the thin slice; the full output-crossing re-scope
+  # (per-family terminals + the `nixosConfigurations` hardcode in flakeModule/realize) is a later arc.
+  mkFlakeTerminal =
+    {
+      inputs,
+      self,
+      modules,
+      systems ? [ ],
+    }:
+    let
+      fp =
+        if flakeParts != null then
+          flakeParts
+        else
+          throw "gen-flake terminals.mkFlakeTerminal: `flakeParts` is required (thread the flake-parts flake at construction).";
+    in
+    (fp.lib.evalFlakeModule
+      {
+        inputs = inputs // {
+          inherit self;
+        };
+      }
+      {
+        imports = modules;
+        inherit systems;
+      }
+    ).config.flake;
 
   # nixosSystem — compatibility SUGAR (the published v1.0.0 API): `mkSystemTerminal` instantiated with
   # `nixpkgs.lib.nixosSystem` as the evaluator. This is the lib's ONE remaining nixpkgs touch (the
